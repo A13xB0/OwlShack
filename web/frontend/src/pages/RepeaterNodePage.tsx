@@ -234,8 +234,11 @@ export function RepeaterNodePage() {
           <section className="panel p-4 flex items-center gap-4">
             <PeerAvatar name={rep.name} size="lg" />
             <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-base font-semibold uppercase tracking-[0.06em]">
+              <div className="flex items-center gap-x-2 gap-y-1 flex-wrap">
+                <span
+                  className="min-w-0 max-w-full truncate font-mono text-base font-semibold uppercase tracking-[0.06em]"
+                  title={rep.name}
+                >
                   {rep.name}
                 </span>
                 <PeerTypePill type="REPEATER" />
