@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 )
 
@@ -29,7 +28,7 @@ func (s *Server) handleSendAdvert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req sendAdvertRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

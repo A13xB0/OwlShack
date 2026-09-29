@@ -347,7 +347,7 @@ func (rm *Client) retryReciprocalPath(pkt *meshcore.Packet, peerPubKey [32]byte,
 	if !pkt.IsRouteFlood() || secret == nil {
 		return
 	}
-	outPath, hashSize := rm.learnedRoute(peerPubKey, rm.node.Peers().Lookup(peerPubKey))
+	outPath, hashSize := learnedRoute(rm.node.Peers().Lookup(peerPubKey))
 	if outPath == nil {
 		return // no route of ours for them to be ignoring
 	}

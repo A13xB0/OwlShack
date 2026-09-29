@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -762,10 +760,10 @@ func TestPacketRepo_ListFilter(t *testing.T) {
 	}
 }
 
-// Bump wantVersion whenever a migration is appended to the migrations slice.
+// Bump wantVersion whenever a migration file is added.
 func TestStore_MigrateUserVersion(t *testing.T) {
 	t.Parallel()
-	const wantVersion = 16 // migrateV1, 2 squashed noop slots, migrateV2..migrateV14
+	const wantVersion = 20 // one per file in migrations/
 	st := newTestStore(t)
 	var v int
 	if err := st.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&v); err != nil {
@@ -787,20 +785,20 @@ func TestStore_ForeignKeysEnforced(t *testing.T) {
 	}
 }
 
-// A late writer call during shutdown must be a no-op, not a send on a closed channel.
+// A late write must not read as a success: WriteAsync says it dropped the closure, WriteSync runs it so the error carries the closed database.
 func TestStore_WriteAfterClose(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
 	if err := st.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	ran := false
-	if st.WriteAsync(func() { ran = true }) {
+	if st.WriteAsync(func() {}) {
 		t.Error("WriteAsync after Close returned true")
 	}
-	st.WriteSync(func() { ran = true })
-	if ran {
-		t.Error("closure ran after Close")
+	var err error
+	st.WriteSync(func() { err = st.Messages.Delete(t.Context(), 1) })
+	if err == nil {
+		t.Error("WriteSync after Close left the error nil, which the caller reads as a write that happened")
 	}
 }
 
@@ -811,20 +809,8 @@ func TestStore_UpgradeFromReleasedSchema(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "released.db")
 
-	// Running only the shipped slots reproduces a node in the field.
-	db, err := openWritableDB(path)
-	if err != nil {
-		t.Fatalf("openWritableDB: %v", err)
-	}
-	for i := range releasedVersion {
-		if err := migrations[i](t.Context(), db); err != nil {
-			t.Fatalf("building released schema at slot %d: %v", i+1, err)
-		}
-	}
-	if _, err := db.ExecContext(t.Context(),
-		fmt.Sprintf("PRAGMA user_version = %d", releasedVersion)); err != nil {
-		t.Fatalf("stamping released version: %v", err)
-	}
+	// Running only the shipped files reproduces a node in the field.
+	db := dbAt(t, path, releasedVersion)
 	// Operator data that must still be there afterwards.
 	if _, err := db.ExecContext(t.Context(),
 		"INSERT INTO companions (name) VALUES ('upgrade-me')"); err != nil {
@@ -863,9 +849,21 @@ func TestStore_UpgradeFromReleasedSchema(t *testing.T) {
 		cols[name] = true
 	}
 	rows.Close()
-	for _, c := range []string{"duty_cycle_pct", "map_tile_key", "path_hash_size"} {
+	for _, c := range []string{"duty_cycle_pct", "map_provider", "map_dark_style", "map_tile_key", "path_hash_size"} {
 		if !cols[c] {
 			t.Errorf("settings.%s missing after the upgrade", c)
+		}
+	}
+
+	// The sensor slot both creates tables and alters one, so an upgraded database is where a half-applied slot shows.
+	for _, q := range []string{
+		"SELECT bindings FROM sensors",
+		"SELECT node_kind FROM telemetry_map",
+		"SELECT state FROM sensor_state",
+		"SELECT telem_base, telem_loc, telem_env FROM companions",
+	} {
+		if _, err := st.db.ExecContext(t.Context(), q); err != nil {
+			t.Errorf("after the upgrade, %q: %v", q, err)
 		}
 	}
 
@@ -874,74 +872,10 @@ func TestStore_UpgradeFromReleasedSchema(t *testing.T) {
 	}
 }
 
-// recordingExecer captures a migration's SQL so it can be fingerprinted without vendoring the DDL.
-type recordingExecer struct {
-	inner dbExecer
-	sql   []string
-}
-
-func (r *recordingExecer) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
-	r.sql = append(r.sql, q)
-	return r.inner.ExecContext(ctx, q, args...)
-}
-
-func (r *recordingExecer) QueryContext(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
-	r.sql = append(r.sql, q)
-	return r.inner.QueryContext(ctx, q, args...)
-}
-
-// A failure means a shipped, frozen slot changed: append a new slot instead of re-pinning, unless the released set itself grew.
-func TestMigrations_ShippedSlotsFrozen(t *testing.T) {
-	t.Parallel()
-	// One pin per release, each over the slots that release shipped. The v1.1.0
-	// pin is a prefix of the v1.2.0 one, so re-pinning the longer digest for a
-	// newly released slot cannot quietly cover an edit to an older one.
-	releases := []struct {
-		tag    string
-		slots  int
-		digest string
-	}{
-		{"v1.1.0", 7, "7af51d21828cd637"},
-		{"v1.2.0", 9, "e1e5fd0ea8417250"},
-		{"v1.3.0", 10, "0f622498527e26eb"},
-		{"v1.3.1", 11, "045401842c7b3fb7"},
-	}
-
-	st := newTestStore(t)
-	for _, rel := range releases {
-		if len(migrations) < rel.slots {
-			t.Fatalf("migrations has %d slots, fewer than the %d released in %s",
-				len(migrations), rel.slots, rel.tag)
-		}
-		tx, err := st.db.BeginTx(t.Context(), nil)
-		if err != nil {
-			t.Fatalf("begin: %v", err)
-		}
-		h := sha256.New()
-		for i := range rel.slots {
-			rec := &recordingExecer{inner: tx}
-			// Errors are irrelevant: the schema already exists, so re-running a
-			// slot may fail. The SQL it attempts is what is being pinned.
-			_ = migrations[i](t.Context(), rec)
-			fmt.Fprintf(h, "slot %d\n", i+1)
-			for _, q := range rec.sql {
-				fmt.Fprintln(h, strings.Join(strings.Fields(q), " "))
-			}
-		}
-		tx.Rollback()
-		if got := hex.EncodeToString(h.Sum(nil))[:16]; got != rel.digest {
-			t.Errorf("the SQL of migration slots 1-%d, released in %s, changed (digest %s, want %s).\n"+
-				"A shipped slot must never be edited, renumbered or squashed — a database "+
-				"already at that version will skip it. Append a new slot instead.",
-				rel.slots, rel.tag, got, rel.digest)
-		}
-	}
-}
-
 // A 4-byte trigger could only come from the bot form, which alone offered it. Config.Validate now
 // rejects that, and a save validates the whole assembled config — so leaving one in place would
 // wall off every later config change, not just an edit to that bot.
-func TestMigrateV12_ClampsTriggerPathHashSize(t *testing.T) {
+func TestMigration014_ClampsTriggerPathHashSize(t *testing.T) {
 	t.Parallel()
 	st := newTestStore(t)
 	ctx := t.Context()
@@ -969,8 +903,8 @@ func TestMigrateV12_ClampsTriggerPathHashSize(t *testing.T) {
 		t.Fatalf("seeding mirror trigger: %v", err)
 	}
 
-	if err := migrateV12(ctx, st.db); err != nil {
-		t.Fatalf("migrateV12: %v", err)
+	if err := migrations[13].apply(ctx, st.db); err != nil {
+		t.Fatalf("014_trigger_path_hash_clamp.sql: %v", err)
 	}
 
 	rows, err := st.db.QueryContext(ctx, `SELECT path_hash_size FROM triggers ORDER BY id`)
@@ -989,5 +923,36 @@ func TestMigrateV12_ClampsTriggerPathHashSize(t *testing.T) {
 	want := []int{3, 3, 1, 0}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("path_hash_size = %v, want %v (4 clamped, the rest untouched)", got, want)
+	}
+}
+
+// A database from a newer build must be refused: accepting it skips every slot appended later while looking healthy.
+func TestStore_RefusesADatabaseFromANewerBuild(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "newer.db")
+
+	st, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	st.Close()
+
+	db, err := openWritableDB(path)
+	if err != nil {
+		t.Fatalf("openWritableDB: %v", err)
+	}
+	ahead := len(migrations) + 1
+	if _, err := db.ExecContext(t.Context(), fmt.Sprintf("PRAGMA user_version = %d", ahead)); err != nil {
+		t.Fatalf("stamping ahead: %v", err)
+	}
+	db.Close()
+
+	st2, err := Open(t.Context(), path)
+	if err == nil {
+		st2.Close()
+		t.Fatal("a database stamped past the last slot opened, so a later migration would be skipped in silence")
+	}
+	if !strings.Contains(err.Error(), "newer OwlShack") {
+		t.Errorf("error %q does not say the database came from a newer build", err)
 	}
 }

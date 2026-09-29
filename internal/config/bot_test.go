@@ -99,3 +99,70 @@ func TestTriggerConfig_Failover(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate_Location(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		typ  string
+		loc  *FeedLocation
+		ok   bool
+	}{
+		{"a point in NZ", "cap", fl(-41.29, 174.78, 20), true},
+		{"the widest margin", "cap", fl(-41.29, 174.78, MaxLocationRadiusKm), true},
+		{"only cap alerts carry shapes", "rss", fl(-41.29, 174.78, 0), false},
+		{"latitude past the pole", "cap", fl(-91, 174.78, 0), false},
+		{"longitude past the antimeridian", "cap", fl(-41.29, 181, 0), false},
+		{"a negative margin", "cap", fl(-41.29, 174.78, -1), false},
+		{"a margin past the limit", "cap", fl(-41.29, 174.78, MaxLocationRadiusKm+1), false},
+		{"a field left out of a config file", "cap", &FeedLocation{Lat: ptr(-41.29), Lon: ptr(174.78)}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ch := ChannelList{{Name: "Public"}}
+			tc := TriggerConfig{Type: c.typ, URL: "https://example.com/feed", Template: "x", Channels: &ch, Location: c.loc}
+			if err := tc.Validate(); (err == nil) != c.ok {
+				t.Errorf("Validate() = %v, want ok=%v", err, c.ok)
+			}
+			if err := tc.ValidateFeedTest(); (err == nil) != c.ok {
+				t.Errorf("ValidateFeedTest() = %v, want ok=%v", err, c.ok)
+			}
+		})
+	}
+}
+
+func TestValidate_Regions(t *testing.T) {
+	t.Parallel()
+	ch := ChannelList{{Name: "Public"}}
+	base := func() TriggerConfig {
+		return TriggerConfig{Type: "cap", URL: "https://example.com/feed", Template: "x", Channels: &ch}
+	}
+	ids := func(s ...string) *[]string { return &s }
+
+	ok := base()
+	ok.Regions = ids("NZL-3398", "NZL-3404")
+	if err := ok.Validate(); err != nil {
+		t.Errorf("two known regions: %v", err)
+	}
+	for name, tc := range map[string]func(*TriggerConfig){
+		"an empty list":     func(t *TriggerConfig) { t.Regions = ids() },
+		"an unknown region": func(t *TriggerConfig) { t.Regions = ids("NZ-AUK") },
+		"an rss trigger":    func(t *TriggerConfig) { t.Type = "rss"; t.Regions = ids("NZL-3398") },
+		"regions and a point": func(t *TriggerConfig) {
+			t.Regions = ids("NZL-3398")
+			t.Location = fl(-36.8, 174.7, 0)
+		},
+	} {
+		cfg := base()
+		tc(&cfg)
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+func ptr(v float64) *float64 { return &v }
+
+func fl(lat, lon, km float64) *FeedLocation {
+	return &FeedLocation{Lat: &lat, Lon: &lon, RadiusKm: &km}
+}

@@ -16,6 +16,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import {
+  Activity,
   AlertCircle,
   ArrowLeft,
   Ban,
@@ -296,6 +297,7 @@ const COMPANION_NAV = [
   { seg: "contacts", label: "contacts", Icon: Users },
   { seg: "channels", label: "channels", Icon: Hash },
   { seg: "repeaters", label: "repeaters", Icon: Radio },
+  { seg: "telemetry", label: "telemetry", Icon: Activity },
 ] as const;
 
 type AdvertMode = "flood" | "zerohop";
@@ -2164,7 +2166,6 @@ function RoomJoinBar({
       }
       const result = (await r.json()) as { role?: string };
 
-      // PATCH replaces the whole metadata blob — merge with what's stored.
       const desired = savePw ? pw : "";
       if (metadata && (metadata.roomPassword ?? "") !== desired) {
         await fetch(
@@ -2172,7 +2173,7 @@ function RoomJoinBar({
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...metadata, roomPassword: desired }),
+            body: JSON.stringify({ roomPassword: desired }),
           },
         ).catch(() => {});
       }

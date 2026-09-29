@@ -1,0 +1,1 @@
+-- Squashed into 001_baseline.sql; kept so every later file's number is the user_version it sets.

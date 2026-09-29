@@ -1,0 +1,22 @@
+# The migration files each release shipped: sha256, file, the release that first shipped it.
+# A listed file is frozen. Add lines only at release time: go test ./internal/store -run TestMigrations -release-migrations <tag>
+7ac2e7ca6944011b0edbe75af59eb8d743f3f1ff2a23132915ef4f65ae3b3e93  001_baseline.sql  v1.1.0
+7a505afae2616793f89a8388edde2dd6bb76d6d8d90baf1d522bfba879763ae3  002_squashed.sql  v1.1.0
+7a505afae2616793f89a8388edde2dd6bb76d6d8d90baf1d522bfba879763ae3  003_squashed.sql  v1.1.0
+efd1d8cad7d1755086ed2c34402d4d13cc032bf5c56d13ae2ff173dd33afff5d  004_packet_hash_path.sql  v1.1.0
+2a842a85b541dafbd8bd77b0b29e45c91855d645f41cebcf92a0e51bfeb7a698  005_signal_tests.sql  v1.1.0
+8528d45be70d7b0f151525eed7e0e0aa677250ef9c0f926454dd88701b27b85e  006_repeater.sql  v1.1.0
+94f8d6b5f015418d60d78a833b62476b86b9e8a0acf6ab5e689665c89ed9ffa5  007_repeater_flood_scope.sql  v1.1.0
+7975a45aa7ccf290fe0b09503d18a5040bfb1757eda927155a610d340bd9b242  008_map_region_path_hash.sql  v1.2.0
+c25d40665153a99e81eac4b68c08a5da8c365a2ab6967cec3f919f189432194f  009_duty_cycle.sql  v1.2.0
+2cc59a17f616a98a3b5038f23a2cefceb9ad8504c59548c1e5698f8e4acefd42  010_spi_board.sql  v1.3.0
+85b4d2a1e80db1a02ebe263ce8231bb473e147c3f58047be08fbadf7b4d073c4  011_admin_password.sql  v1.3.1
+4406b2e7a42f067e2b633be27385a2da861fd87e8406a2bd94e3d14e093d6af4  012_dm_policy.sql  v1.4.0
+7115deaf9af185f6a63aa13a8102fd7d98a1be7a8431079226f26a926398b751  013_trigger_url.sql  v1.4.0
+80abceae8521138bd87124f3e563993d2f7b7e7fd88838d603a492dc2b678ddc  014_trigger_path_hash_clamp.sql  v1.4.0
+f52da54b8f07af72da6397a06dbb2e855a531da82c91e491d1437e70fc65014c  015_modem_token.sql  v1.4.0
+2a668ba901a123330984d777be9d45cd93aabfcb889c9864203928a77ffa585e  016_bot_failover.sql  v1.4.0
+f3f92bcc9964b15c277b40e2c4aa75e7934a8d01bb1f3a45310ab9b7d95003e8  017_sensors.sql  v1.5.0-rc.1
+2f684825732048b2274fd2a4805e46a3b17a53ac33f59b2bdb0a2d55fd71a1e6  018_trigger_location.sql  v1.5.0-rc.1
+1cd0c7134341efcf5293717da64966288f35bbc8f9ae8a4312cfea5a8238b5dc  019_map_provider.sql  v1.5.0-rc.1
+e83508b5c2d090b6442a8249858586b197184c89602cf66a2d1d17e8977beaa6  020_contact_path_hash_size.sql  v1.5.0-rc.1

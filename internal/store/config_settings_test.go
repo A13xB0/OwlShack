@@ -26,6 +26,8 @@ func TestSettings_RoundTripsEveryColumn(t *testing.T) {
 		CR:             intPtr2(5),
 		TX:             intPtr2(22),
 		ListenAddr:     strPtr(":8081"),
+		MapProvider:    "carto",
+		MapDarkStyle:   "simplified",
 		MapTileKey:     strPtr("tile-key"),
 		ModemToken:     strPtr("s3cret"),
 		PathHashSize:   intPtr2(2),
@@ -62,6 +64,12 @@ func TestSettings_RoundTripsEveryColumn(t *testing.T) {
 	eqStr("listenAddr", want.ListenAddr, got.ListenAddr)
 	eqStr("mapTileKey", want.MapTileKey, got.MapTileKey)
 	eqStr("modemToken", want.ModemToken, got.ModemToken)
+	if got.MapDarkStyle != want.MapDarkStyle {
+		t.Errorf("mapDarkStyle: got %q, want %q", got.MapDarkStyle, want.MapDarkStyle)
+	}
+	if got.MapProvider != want.MapProvider {
+		t.Errorf("mapProvider: got %q, want %q", got.MapProvider, want.MapProvider)
+	}
 	if got.ConnectionType != want.ConnectionType {
 		t.Errorf("connectionType: got %q, want %q", got.ConnectionType, want.ConnectionType)
 	}

@@ -37,9 +37,30 @@ jobs:
           path: web/frontend/dist
           if-no-files-found: error
 
+  # A tag must not ship a migration file that migrations.sum leaves editable.
+  migrations:
+    name: Migrations Recorded
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Every migration file is in migrations.sum
+        env:
+          OWLSHACK_RELEASE: "1"
+        # A renamed test would otherwise pass as "no tests to run".
+        run: |
+          go test -count=1 -v -run '^TestMigrations_ShippedFilesAreFrozen$' ./internal/store > migrations-test.txt || { cat migrations-test.txt; exit 1; }
+          cat migrations-test.txt
+          grep -q -- '--- PASS: TestMigrations_ShippedFilesAreFrozen' migrations-test.txt
+
   build:
     name: Build Binaries
-    needs: frontend
+    needs: [frontend, migrations]
     runs-on: ubuntu-latest
     strategy:
       matrix:

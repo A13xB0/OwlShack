@@ -127,6 +127,8 @@ func assembleFromRows(rows *configRows) *config.Config {
 		CR:             intToU8Ptr(s.CR),
 		TX:             intToU8Ptr(s.TX),
 		ListenAddr:     s.ListenAddr,
+		MapProvider:    &s.MapProvider,
+		MapDarkStyle:   &s.MapDarkStyle,
 		MapTileKey:     s.MapTileKey,
 		ModemToken:     s.ModemToken,
 		PathHashSize:   s.PathHashSize,
@@ -158,6 +160,10 @@ func assembleFromRows(rows *configRows) *config.Config {
 			PathHashSize:   c.PathHashSize,
 			DMPolicy:       emptyToNil(c.DMPolicy),
 			DMAllow:        sliceToPtr(c.DMAllow),
+
+			TelemetryBase:        emptyToNil(c.TelemBase),
+			TelemetryLocation:    emptyToNil(c.TelemLoc),
+			TelemetryEnvironment: emptyToNil(c.TelemEnv),
 		}
 		if chs := chansByComp[c.ID]; len(chs) > 0 {
 			list := make(config.ChannelList, 0, len(chs))
@@ -182,6 +188,8 @@ func assembleFromRows(rows *configRows) *config.Config {
 					URL:                t.URL,
 					FailoverPattern:    t.FailoverPattern,
 					FailoverTimeout:    t.FailoverTimeout,
+					Location:           locationFromStore(t.Location),
+					Regions:            t.Regions,
 				}
 				if len(t.ChannelIDs) > 0 {
 					cl := make(config.ChannelList, 0, len(t.ChannelIDs))
@@ -307,6 +315,8 @@ func writeConfigToTables(ctx context.Context, st *store.Store, cfg *config.Confi
 		CR:             u8ToIntPtr(cfg.CR),
 		TX:             u8ToIntPtr(cfg.TX),
 		ListenAddr:     cfg.ListenAddr,
+		MapProvider:    cfg.MapProviderOr(),
+		MapDarkStyle:   cfg.MapDarkStyleOr(),
 		MapTileKey:     cfg.MapTileKey,
 		ModemToken:     cfg.ModemToken,
 		PathHashSize:   cfg.PathHashSize,
@@ -339,6 +349,10 @@ func writeConfigToTables(ctx context.Context, st *store.Store, cfg *config.Confi
 			PathHashSize:   cc.PathHashSize,
 			DMPolicy:       cc.DMPolicyOrDefault(),
 			DMAllow:        ptrToSlice(cc.DMAllow),
+
+			TelemBase: config.TelemetryModeOrDefault(cc.TelemetryBase),
+			TelemLoc:  config.TelemetryModeOrDefault(cc.TelemetryLocation),
+			TelemEnv:  config.TelemetryModeOrDefault(cc.TelemetryEnvironment),
 		}
 		if prev, ok := byName[cc.Name]; ok {
 			row.ID = prev.ID
@@ -474,6 +488,8 @@ func replaceCompanionChildren(ctx context.Context, st *store.Store, companionID 
 			URL:                tg.URL,
 			FailoverPattern:    tg.FailoverPattern,
 			FailoverTimeout:    tg.FailoverTimeout,
+			Location:           locationToStore(tg.Location),
+			Regions:            tg.Regions,
 			ChannelIDs:         chIDs,
 		}
 		if err := st.Triggers.Create(ctx, &tr); err != nil {

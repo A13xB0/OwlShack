@@ -11,11 +11,19 @@ import { BackupPanel } from "@/components/BackupPanel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiObject } from "@/hooks/useApiObject";
-import { setTileKey } from "@/lib/leaflet";
+import { setTiles, type MapDarkStyle, type MapProvider } from "@/lib/leaflet";
 import { configApi, type Settings, type SpiBoard } from "@/lib/configApi";
 
 const BANDWIDTHS = [7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125, 250, 500];
 const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"];
+const MAP_PROVIDERS: { value: MapProvider; label: string }[] = [
+  { value: "osm", label: "OpenStreetMap" },
+  { value: "carto", label: "CARTO" },
+];
+const MAP_DARK_STYLES: { value: MapDarkStyle; label: string }[] = [
+  { value: "original", label: "Original" },
+  { value: "simplified", label: "Simplified" },
+];
 
 export function RadioPage() {
   const { item: settings, loading, error, reload } = useApiObject<Settings>(
@@ -37,6 +45,8 @@ export function RadioPage() {
   const [cr, setCr] = useState("");
   const [tx, setTx] = useState("");
   const [listenAddr, setListenAddr] = useState("");
+  const [mapProvider, setMapProvider] = useState<MapProvider>("osm");
+  const [mapDarkStyle, setMapDarkStyle] = useState<MapDarkStyle>("original");
   const [mapTileKey, setMapTileKey] = useState("");
   const [pathHashSize, setPathHashSize] = useState("1");
   // Percentage, like the firmware's `set dutycycle`. Blank = the 50% default.
@@ -55,6 +65,8 @@ export function RadioPage() {
     setCr(settings.cr != null ? String(settings.cr) : "");
     setTx(settings.tx != null ? String(settings.tx) : "");
     setListenAddr(settings.listenAddr ?? "");
+    setMapProvider(settings.mapProvider);
+    setMapDarkStyle(settings.mapDarkStyle);
     setMapTileKey(settings.mapTileKey ?? "");
     setPathHashSize(String(settings.pathHashSize ?? 1));
     setDutyCycle(settings.dutyCycle != null ? String(settings.dutyCycle) : "");
@@ -90,6 +102,8 @@ export function RadioPage() {
         cr: parseInt(cr, 10) || null,
         tx: tx === "" ? null : parseInt(tx, 10),
         listenAddr: listenAddr || null,
+        mapProvider,
+        mapDarkStyle,
         mapTileKey: mapTileKey.trim(), // "" clears
         // Only send a token when one was typed; blank keeps the stored secret.
         ...(modemToken !== "" ? { modemToken } : {}),
@@ -99,7 +113,7 @@ export function RadioPage() {
         // setupComplete omitted on purpose: the server keeps the stored value.
       });
       toast.success("Radio settings saved");
-      setTileKey(mapTileKey.trim());
+      setTiles(mapProvider, mapTileKey.trim(), mapDarkStyle);
       reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save settings");
@@ -261,16 +275,48 @@ export function RadioPage() {
                 onChange={setLogLevel}
                 hint="-v / -vv flags override this"
               />
-              <div className="sm:col-span-2">
+              <SelectField
+                label="Map tiles"
+                value={mapProvider}
+                options={MAP_PROVIDERS}
+                onChange={(v) => setMapProvider(v as MapProvider)}
+                hint={
+                  mapProvider === "osm" ? (
+                    <>
+                      free, no key · run by volunteers under a{" "}
+                      <a
+                        href="https://operations.osmfoundation.org/policies/tiles/"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline underline-offset-2 hover:text-primary/80"
+                      >
+                        light-use policy
+                      </a>
+                    </>
+                  ) : (
+                    "light and dark styles"
+                  )
+                }
+              />
+              {mapProvider === "osm" ? (
+                <SelectField
+                  label="Dark mode map style"
+                  value={mapDarkStyle}
+                  options={MAP_DARK_STYLES}
+                  onChange={(v) => setMapDarkStyle(v as MapDarkStyle)}
+                  hint="OpenStreetMap has no dark style of its own · original inverts its colours, simplified is a plainer dark map with navy water · light mode is unchanged"
+                />
+              ) : null}
+              {mapProvider === "carto" ? (
                 <TextField
-                  label="CARTO basemap API key"
+                  label="CARTO API key"
                   type="password"
                   value={mapTileKey}
                   onChange={setMapTileKey}
                   placeholder="blank = keyless tiles"
                   hint={
                     <>
-                      map tiles now need a key from{" "}
+                      CARTO now needs a key from{" "}
                       <a
                         href="https://carto.com/basemaps/apikey/"
                         target="_blank"
@@ -283,7 +329,7 @@ export function RadioPage() {
                     </>
                   }
                 />
-              </div>
+              ) : null}
             </div>
           </section>
 

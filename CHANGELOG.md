@@ -3,7 +3,128 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
-## Unreleased
+## v1.5.0-rc.1 - 2026-09-29
+
+Baseline `v1.4.2`. Sensors on the Pi, sent over the mesh; bytes per hop and one Path window for
+every contact; CAP bots that keep to one place; satellite and topo maps; and a clearer health
+check. It also fixes logging in to repeaters and rooms with an imported private key.
+
+Not yet tried: a firmware client reading our sensors over the mesh, and the new health checks on
+a Pi.
+
+Schema `user_version` 16 to 20: adds the sensor tables, who may read each companion's telemetry, where a
+CAP bot's alerts must be, which map tiles to use, and each contact's bytes per hop.
+
+### Added
+
+- **Bytes per hop for each contact.** A contact is added at the size it floods its adverts at, and
+  everything sent to it by flood or direct goes out at that size: requests, DMs, ACKs and
+  replies. A learned path keeps the size it was learned at. Before, requests to a repeater and DMs
+  always flooded at 1 byte per hop. A saved path at another size is dropped on upgrade, so the next
+  send floods and learns one at the right size.
+- **One Path window for every contact.** Repeaters, rooms, sensors, chats and the contact page share
+  it. It shows the route in use with each hop named, and sets Flood, Direct or a path at a chosen
+  bytes per hop. Pick the hops from the repeater list, as on the Trace page, or type them as hex.
+  A hop whose hash more than one repeater shares is marked, here and on the Trace page.
+- **Sensors page.** Reads I2C sensors on the Pi every 5 seconds: SHTC3, LPS22HB, BME680, ENS210,
+  ADS1115 or SGM58031 ADC inputs, and a PiSugar UPS. Each card shows whether it is healthy,
+  calibrating, waiting, stale or failing.
+- **Scanning for sensors.** A scan only reads, so it never disturbs the bus, and lists what could
+  be at each address that answers. An SHTC3 sleeps until woken, so add it from the list.
+- **Derived sensors.** Work a value out from other sensors, such as a dew point or an ADC divider
+  in volts.
+- **Web sensors.** Fetch a URL on a schedule and read numbers from the reply, such as a weather
+  report's temperature and wind. Headers and logins are supported, and Test tries it before you save.
+- **Air quality from the BME680.** An air-quality index and CO2 and VOC estimates after a 5-minute
+  run-in. It calibrates to your air over days and remembers it across restarts.
+- **The radio board as a sensor.** Add the battery voltage and MCU temperature of the KISS or
+  openHop board your radio runs on, like any other sensor. It reads what OwlShack already asks the
+  board for, so it adds nothing to the link.
+- **Sensors over the mesh.** Choose which readings the repeater and each companion send when
+  another node asks.
+- **CAP alerts for one place.** A CAP bot can keep to alerts near a point, picked on a map or
+  copied from the companion's position, or to alerts over regions you click on the map, such as
+  the Auckland region. Regions cover every country. Test shows whether each alert is inside or
+  outside. A feed whose alerts carry no map shape cannot be filtered this way, but a match pattern
+  on the new `geocode` field can use the publisher's own area codes instead, such as
+  `geocode:(?m)^UGC=TX` for US weather alerts in Texas.
+- **Test an RSS or CAP bot before it fires.** Test in the bot editor fetches the live feed and lists
+  its newest items. Pick one to see the exact message the bot would send, updated as you edit the
+  template, with whether your match patterns would let it through and where a channel would cut it
+  short. Nothing is sent.
+- **A copy of the database before each upgrade.** When a new version changes the database, the
+  old one is kept as `meshcore.db.pre-v<old>-to-v<new>`, so going back is stopping OwlShack and
+  moving it back.
+- **Who may read a companion's telemetry.** Battery, position and sensors each allow no one, chosen
+  contacts or every contact. All three start at no one.
+- **Satellite and topo views on the Map page.** Switch between the map, Esri satellite imagery and
+  OpenTopoMap at the top right of the map. Your browser remembers the choice.
+
+### Changed
+
+- **Maps use OpenStreetMap by default.** Settings has a new Map tiles choice: OpenStreetMap, which
+  needs no key, or CARTO. If you had saved a CARTO key you stay on CARTO. OpenStreetMap has no
+  dark style, so in dark mode its colours are inverted, or with Dark mode map style set to
+  Simplified, remapped to a plainer dark map with navy water.
+- **Repeater telemetry follows the firmware.** Battery and temperature always go out, and a guest
+  gets only those.
+- **Fewer writes to the SD card.** The database syncs to disk in batches instead of after every
+  packet. A power cut can lose the last few seconds of packets and readings, but a setting you
+  saved is on disk before the page says it is saved.
+- **A broker being down no longer marks the whole node degraded.** `/api/health`'s `status` now
+  covers only what the node needs to work: the radio and a running node. MQTT has its own
+  `mqtt.status`: `ok`, `degraded` when an enabled broker is not connected, or `off`. A monitor
+  that alerted on MQTT through `status` should watch `mqtt.status` instead.
+
+### Fixed
+
+- **Logging in with an imported private key.** A companion using a key imported from a device
+  (`prv.key`) could not log in to any repeater or room, or ask a contact for telemetry: the
+  node dropped every request as undecryptable, so each one timed out. A generated key was fine.
+- **A repeater's path shows the route in use.** After a restart the repeater page and the chat's
+  Path dialog read Flood while requests still went direct, until you reset the path. The saved
+  route is now loaded at start, so what you see is what is sent.
+- **A new contact starts with no route.** Adding a contact used the reversed path of the advert
+  we heard as its route. It now floods until the contact answers with a path, as the firmware
+  does.
+- **A direct contact shows as Direct.** The contact page showed a direct neighbour as Flood.
+- **Set path only takes a path that fits.** A path that was not whole hops, or used more than 3
+  bytes per hop, was sent with a length that did not match. Those are now refused with a reason.
+- **Resetting a path always sticks.** A reset or a set path could be lost when the database was
+  busy, and the old route came back after a restart.
+- **Meteoalarm CAP feeds work.** Every alert from a Meteoalarm feed failed to load, because the
+  bot fetched the feed entry's web page rather than its alert document.
+- **A CAP alert is sent once.** A feed that posts one alert under many entries, as Meteoalarm does
+  once per area, sent it once per entry, up to five times a poll, and could push other alerts out.
+- **A shared location on the map can be cleared.** Opening coordinates from a message on the map
+  now shows a pin chip above the map, like the one for a packet path. Clicking it removes the pin
+  and zooms back out to your peers.
+- **A radio board that stops answering is caught.** Before, a board that hung while its USB link
+  stayed up read as `ok` in `/api/health`. It now shows as `degraded` after two minutes without an
+  answer, even when reconnecting did not fix it, and a board that was already hung when OwlShack
+  started is caught the same way. An openHop board on a serial link, which nothing checked before,
+  is now checked and reconnected the same way too. The automatic reconnect for a hung board also
+  never started on a node with no MQTT and no repeater, and now it does.
+- **A stuck transmitter is caught, and no longer fills the packet log.** When the board's
+  transmit-done reply went missing, every later send was held and retried five times a second.
+  Each retry was logged as a new sent packet (one was logged 196 times in 46 seconds) and counted
+  as a send in `/api/health`. Each packet is now logged once. `/api/health` reports
+  `txFailedInARow` and `txFailingSecs`, and shows `degraded` after two minutes of failed sends.
+- **A companion that fails to start is no longer reported as a radio fault.** `/api/health` now
+  says the companion or repeater failed to start, instead of `radio: modem not connected`.
+- **Readings sent over the mesh are rounded, not cut short.** A battery at 4.1 V went out as
+  4.09 V, and every reading sent over the mesh leaned low the same way.
+- **A full disk shows up.** `/api/health` reports `diskFreeBytes` and shows `degraded` below
+  32 MiB. Before, every write failed with nothing in health to say so.
+- **Warnings and green status text were hard to read in light mode.** They now meet the 4.5:1
+  contrast guideline.
+- **Companion ACKs flooded with one-byte path hashes.** They now use the companion's own setting.
+- **Saving one contact setting could clear another.** Each save now changes only what it names, and
+  a bad value is refused with the reason.
+- **The sidebar's system status was always "nominal".** It now reads `/api/health`: nominal,
+  degraded with the reasons when you tap it, or offline when the page cannot reach OwlShack.
+- **The database's log file never shrank.** After a busy spell, such as a restore, it stayed at its
+  largest size. It now drops back to 4 MB, and `/api/health` reports its size as `walBytes`.
 
 ## v1.4.2 - 2026-09-21
 

@@ -70,7 +70,8 @@ func runProbe(t *testing.T, stub *probeStub) chan struct{} {
 }
 
 // A modem that has never answered may simply not implement the queries. Reconnecting it forever
-// would take a working radio down, so the probe stays disarmed until it has seen one reply.
+// would take a working radio down, so the probe stays disarmed until it has seen one reply; it still
+// asks, or on a node with nothing else polling the board it would never arm at all.
 func TestProbeLiveness_StaysDisarmedUntilTheModemHasAnswered(t *testing.T) {
 	shrinkProbe(t)
 	stub := &probeStub{} // last is the zero time: never answered
@@ -83,8 +84,29 @@ func TestProbeLiveness_StaysDisarmedUntilTheModemHasAnswered(t *testing.T) {
 		t.Fatal("asked for a reconnect on a modem that never answered a query")
 	default:
 	}
-	if got := stub.pollCount(); got != 0 {
-		t.Errorf("polled %d times while disarmed; the guard must short-circuit before spending a probe", got)
+	if stub.pollCount() == 0 {
+		t.Error("never asked a modem that has not answered yet, so nothing else polling the board leaves the probe disarmed forever")
+	}
+}
+
+// The first answer can only come from the probe itself when nothing else polls the board.
+func TestProbeLiveness_ArmsItselfAndCatchesAStuckBoard(t *testing.T) {
+	shrinkProbe(t)
+	stub := &probeStub{answer: true}
+	reconnect := runProbe(t, stub)
+	for deadline := time.Now().Add(3 * time.Second); stub.LastReply().IsZero(); time.Sleep(probeInterval) {
+		if time.Now().After(deadline) {
+			t.Fatal("the probe never asked a board nothing else polls")
+		}
+	}
+	stub.mu.Lock()
+	stub.answer = false
+	stub.mu.Unlock()
+
+	select {
+	case <-reconnect:
+	case <-time.After(3 * time.Second):
+		t.Fatal("a board that answered only the probe then went silent was never reconnected")
 	}
 }
 
@@ -156,7 +178,7 @@ func TestKissStats_DropsReadingsOnceTheModemStopsAnswering(t *testing.T) {
 	}
 
 	// The port has gone away: the sticky flags are still set, but nothing has answered since.
-	p.lastReply.Store(time.Now().Add(-staleReadingAfter - time.Second).UnixNano())
+	p.lastReply.Store(time.Now().Add(-StaleReadingAfter - time.Second).UnixNano())
 
 	ds := p.snapshot()
 	if ds.HaveBattery {

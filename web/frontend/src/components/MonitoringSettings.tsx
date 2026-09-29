@@ -21,9 +21,11 @@ export interface MonitorMetadata {
   repeaterPassword?: string;
   monitor?: boolean;
   monitorIntervalSecs?: number;
-  monitorProbes?: string[];
+  monitorProbes?: string[] | null;
   monitorRetrySecs?: number;
   monitorMaxRetries?: number;
+  // telemPerms is which telemetry classes this contact may read; owned by the telemetry page.
+  telemPerms?: number;
 }
 
 const INTERVAL_OPTS: { value: string; label: string }[] = [
@@ -45,7 +47,7 @@ const PROBES = [
 
 type ProbeKey = (typeof PROBES)[number]["key"];
 
-function initialProbes(list?: string[]): Record<ProbeKey, boolean> {
+function initialProbes(list?: string[] | null): Record<ProbeKey, boolean> {
   if (!list || list.length === 0)
     return { status: true, telemetry: true, neighbors: true };
   return {
@@ -128,23 +130,21 @@ export function MonitoringSettings({
 
   const save = useCallback(async () => {
     setSaving(true);
-    const meta: MonitorMetadata = {
-      ...base,
+    // Only what this panel owns: the PATCH merges, so a grant saved elsewhere since this loaded survives.
+    const patch: MonitorMetadata = {
       monitor: enabled,
       monitorIntervalSecs: Number(intervalSecs),
       monitorRetrySecs: Number(retrySecs),
       monitorMaxRetries: Number(maxRetries),
+      monitorProbes: [],
     };
+    // Never write isRepeater for a companion: a stray flag routes the node to the login-based repeater collector.
     if (kind === "repeater") {
       const enabledProbes = (Object.keys(probes) as ProbeKey[]).filter((k) => probes[k]);
-      const allOn = enabledProbes.length === PROBES.length;
-      meta.isRepeater = base.isRepeater ?? true;
-      meta.repeaterPassword = password;
-      // Omit when all probes are on so it stays the implicit "all" default.
-      meta.monitorProbes = allOn ? undefined : enabledProbes;
-    } else {
-      // Never write isRepeater here — a stray flag routes the node to the login-based repeater collector.
-      meta.monitorProbes = undefined;
+      patch.isRepeater = base.isRepeater ?? true;
+      patch.repeaterPassword = password;
+      // Empty when all are on, so it stays the implicit "all" rather than a list.
+      patch.monitorProbes = enabledProbes.length === PROBES.length ? [] : enabledProbes;
     }
     try {
       const r = await fetch(
@@ -152,10 +152,11 @@ export function MonitoringSettings({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(meta),
+          body: JSON.stringify(patch),
         },
       );
       if (!r.ok) throw new Error(await apiErrorMessage(r));
+      const meta = { ...base, ...patch };
       setBase(meta);
       toast.success("Monitoring settings saved");
       onSaved?.(meta);

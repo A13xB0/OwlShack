@@ -10,6 +10,8 @@ interface ApiList<T> {
   reload: () => void;
   /** Re-fetch with no spinner, leaving what is on screen if it fails — for useResume. */
   refresh: () => void;
+  /** Take a whole set the server pushed, which is newer than any fetch still in flight. */
+  replace: (items: T[]) => void;
 }
 
 // Refetches whenever the URL changes; pass url=null to defer (e.g. a missing route param).
@@ -53,6 +55,12 @@ export function useApiList<T>(
 
   const reload = useCallback(() => load(false), [load]);
   const refresh = useCallback(() => load(true), [load]);
+  const replace = useCallback((next: T[]) => {
+    seq.current++;
+    setItems(next);
+    setLoading(false);
+    setError(null);
+  }, []);
 
   useEffect(() => {
     reload();
@@ -61,5 +69,5 @@ export function useApiList<T>(
     };
   }, [reload]);
 
-  return { items, setItems, loading, error, reload, refresh };
+  return { items, setItems, loading, error, reload, refresh, replace };
 }

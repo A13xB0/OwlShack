@@ -229,6 +229,11 @@ func seedForPrune(t *testing.T, opts PruneOptions) *sql.DB {
 		(unixepoch('now','-1 days'),'p1','battery',1),
 		(unixepoch('now','-40 days'),'p1','battery',2)`)
 	exec(`INSERT INTO repeater (id, name, private_key) VALUES (1,'rptr','cc')`)
+	exec(`INSERT INTO sensors (id, provider, kind, name) VALUES (1,'i2c','shtc3','air')`)
+	exec(`INSERT INTO telemetry_map (node_kind, node_id, channel, lpp_type, sensor_id, metric) VALUES
+		('companion',1,2,103,1,'temperature'),
+		('companion',2,2,103,1,'temperature'),
+		('repeater',1,3,103,1,'temperature')`)
 	// The settings singleton must survive every prune.
 	exec(`INSERT INTO settings (id, freq) VALUES (1, 917.375)`)
 
@@ -419,5 +424,35 @@ func TestPruneBackup_DropsAllHistoryByDefault(t *testing.T) {
 	// The pruned copy must still be adoptable.
 	if _, err := InspectBackup(context.Background(), ""); err == nil {
 		t.Error("InspectBackup accepted an empty path")
+	}
+}
+
+// A map row keys on node kind and id, so nothing cascades and an orphan restores onto whatever takes that id.
+func TestPruneBackup_DropsMapRowsForPrunedNodes(t *testing.T) {
+	db := seedForPrune(t, PruneOptions{
+		CompanionIDs: []int64{1}, // drops companion 2
+		Repeater:     false,      // drops the repeater
+		MessageDays:  DaysAll,
+		PacketDays:   DaysAll,
+		MetricDays:   DaysAll,
+	})
+	if n := count(t, db, "SELECT COUNT(*) FROM telemetry_map"); n != 1 {
+		t.Errorf("telemetry_map rows = %d, want 1 (only the kept companion)", n)
+	}
+	if n := count(t, db, "SELECT COUNT(*) FROM telemetry_map WHERE node_kind='companion' AND node_id=1"); n != 1 {
+		t.Errorf("the kept companion lost its map: %d rows", n)
+	}
+}
+
+func TestPruneBackup_KeepsRepeaterMap(t *testing.T) {
+	db := seedForPrune(t, PruneOptions{
+		CompanionIDs: []int64{1},
+		Repeater:     true,
+		MessageDays:  DaysAll,
+		PacketDays:   DaysAll,
+		MetricDays:   DaysAll,
+	})
+	if n := count(t, db, "SELECT COUNT(*) FROM telemetry_map WHERE node_kind='repeater'"); n != 1 {
+		t.Errorf("repeater map rows = %d, want 1", n)
 	}
 }

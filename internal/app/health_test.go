@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -20,15 +22,14 @@ func newHealthBackend(t *testing.T) *backend {
 		t.Fatalf("store.Open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	// Nil stats and no nodes is the shape of a process whose radio never came up — the case the
-	// endpoint exists to make visible.
-	return newBackend(nil, nil, db, nil, nil, nil, nil, nil)
+	// Nil stats and no nodes is a process whose radio never came up, the case the endpoint exists to show.
+	return &backend{db: db}
 }
 
 func problemSet(t *testing.T, b *backend, now time.Time, act *radioActivity) map[string]bool {
 	t.Helper()
 	set := map[string]bool{}
-	for _, p := range b.health(now, act).Problems {
+	for _, p := range b.health(now, act, nil).Problems {
 		set[p] = true
 	}
 	return set
@@ -37,7 +38,7 @@ func problemSet(t *testing.T, b *backend, now time.Time, act *radioActivity) map
 func TestHealth_NoRadioIsReportedNotZeroed(t *testing.T) {
 	t.Parallel()
 	b := newHealthBackend(t)
-	info := b.health(time.Now(), &radioActivity{})
+	info := b.health(time.Now(), &radioActivity{}, nil)
 
 	if info.Radio.Connected {
 		t.Fatal("Radio.Connected true with no modem")
@@ -69,7 +70,7 @@ func TestHealth_ReportsTrafficAges(t *testing.T) {
 	act.lastRx.Store(now.Add(-90 * time.Second).UnixNano())
 	act.lastTx.Store(now.Add(-5 * time.Second).UnixNano())
 
-	info := b.health(now, &act)
+	info := b.health(now, &act, nil)
 	if info.Radio.LastRxSecs == nil || *info.Radio.LastRxSecs != 90 {
 		t.Errorf("LastRxSecs = %v, want 90", info.Radio.LastRxSecs)
 	}
@@ -87,7 +88,7 @@ func TestHealth_DroppedWritesAreReportedByAgeNotLatched(t *testing.T) {
 	t.Parallel()
 	b := newHealthBackend(t)
 
-	if info := b.health(time.Now(), &radioActivity{}); info.Database.WritesDroppedLastSecs != nil {
+	if info := b.health(time.Now(), &radioActivity{}, nil); info.Database.WritesDroppedLastSecs != nil {
 		t.Fatalf("reported a drop age of %v before any write was dropped",
 			*info.Database.WritesDroppedLastSecs)
 	}
@@ -101,7 +102,7 @@ func TestHealth_DroppedWritesAreReportedByAgeNotLatched(t *testing.T) {
 	}
 	defer close(release)
 
-	info := b.health(time.Now(), &radioActivity{})
+	info := b.health(time.Now(), &radioActivity{}, nil)
 	if info.Database.WritesDropped == 0 {
 		t.Fatalf("no writes recorded as dropped; queue len %d of %d",
 			info.Database.WriteQueueLen, info.Database.WriteQueueCap)
@@ -120,6 +121,15 @@ func TestHealth_DroppedWritesAreReportedByAgeNotLatched(t *testing.T) {
 	}
 	if info.Status != "" && len(info.Problems) > 0 {
 		t.Logf("problems (should not mention the database): %v", info.Problems)
+	}
+}
+
+// A checkpoint that never completes grows the WAL without bound and nothing else shows it, so its size is published for a monitor to threshold.
+func TestHealth_ReportsTheWALSize(t *testing.T) {
+	t.Parallel()
+	b := newHealthBackend(t)
+	if got := b.health(time.Now(), &radioActivity{}, nil).Database.WALBytes; got <= 0 {
+		t.Errorf("walBytes = %d on a migrated database, want its WAL's size", got)
 	}
 }
 
@@ -154,9 +164,9 @@ func TestHealth_DoesNotPollTheBoard(t *testing.T) {
 	t.Cleanup(func() { db.Close() })
 
 	stats := &countingStats{}
-	b := newBackend(nil, nil, db, stats, nil, nil, nil, nil)
+	b := &backend{db: db, stats: stats}
 
-	info := b.health(time.Now(), &radioActivity{})
+	info := b.health(time.Now(), &radioActivity{}, nil)
 	if got := stats.polls.Load(); got != 0 {
 		t.Errorf("health polled the board %d times, want 0", got)
 	}
@@ -237,4 +247,129 @@ func TestBrokerHealth_AgesNotFlags(t *testing.T) {
 			t.Errorf("LastErrorSecs = %v, want null", *got.LastErrorSecs)
 		}
 	})
+}
+
+// A broker being down loses uploads, not the node, so it has its own verdict and never degrades the node's.
+func TestMqttHealth_JudgesBrokersApartFromTheNode(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		brokers []api.MqttBrokerStatus
+		want    string
+		n       int
+	}{
+		"no observer":       {nil, "off", 0},
+		"only a disabled":   {[]api.MqttBrokerStatus{{Name: "a", Enabled: false}}, "off", 0},
+		"all connected":     {[]api.MqttBrokerStatus{{Name: "a", Enabled: true, Connected: true}}, "ok", 0},
+		"one down":          {[]api.MqttBrokerStatus{{Name: "a", Enabled: true, Connected: true}, {Name: "b", Enabled: true}}, "degraded", 1},
+		"disabled one down": {[]api.MqttBrokerStatus{{Name: "a", Enabled: true, Connected: true}, {Name: "b"}}, "ok", 0},
+	} {
+		got := mqttHealth(tc.brokers)
+		if got.Status != tc.want || len(got.Problems) != tc.n {
+			t.Errorf("%s: %+v, want %s with %d problems", name, got, tc.want, tc.n)
+		}
+	}
+}
+
+func TestHealth_ABrokerDownDoesNotDegradeTheNode(t *testing.T) {
+	t.Parallel()
+	b := newHealthBackend(t)
+	if info := b.health(time.Now(), &radioActivity{}, nil); info.Mqtt.Status != "off" || info.Mqtt.Problems == nil {
+		t.Errorf("no observer: mqtt %+v, want off with an empty, non-null problem list", info.Mqtt)
+	}
+	info := b.health(time.Now(), &radioActivity{}, []api.MqttBrokerStatus{{Name: "letsmesh", Enabled: true}})
+	if info.Mqtt.Status != "degraded" || len(info.Brokers) != 1 {
+		t.Errorf("mqtt %+v with %d brokers, want degraded and the broker listed", info.Mqtt, len(info.Brokers))
+	}
+	for _, p := range info.Problems {
+		if strings.Contains(p, "mqtt") {
+			t.Errorf("an mqtt entry reached the node's problems: %q", p)
+		}
+	}
+}
+
+type replyStats struct {
+	countingStats
+	last, connected time.Time
+}
+
+func (r *replyStats) LastReply() time.Time   { return r.last }
+func (r *replyStats) ConnectedAt() time.Time { return r.connected }
+
+// A board whose serial link is up but whose firmware has hung is the fault "connected" cannot see; and reconnecting never waits for an answer, so the silence must outlive the old modem.
+func TestHealth_ABoardThatStopsAnsweringDegradesTheNode(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	stuck := now.Add(-modem.AnswerDeadline() - time.Minute)
+	b := newHealthBackend(t)
+	for name, tc := range map[string]struct {
+		last, kept, connected time.Time
+		keptSilence           time.Time // an earlier link that never heard an answer connected then
+		want                  bool
+	}{
+		"answering":                {last: now.Add(-10 * time.Second)},
+		"silent":                   {last: stuck, want: true},
+		"stuck across a reconnect": {kept: stuck, want: true},
+		"answering again":          {last: now.Add(-5 * time.Second), kept: stuck},
+		"not yet answered":         {connected: now.Add(-10 * time.Second)},
+		"never answered":           {connected: stuck, want: true},
+		"answered a link ago":      {kept: now.Add(-10 * time.Second), connected: stuck},
+		// The TCP link drops for want of traffic from a hung board, so each new link is young.
+		"never answered across reconnects": {keptSilence: stuck, connected: now.Add(-10 * time.Second), want: true},
+	} {
+		b.stats = &replyStats{last: tc.last, connected: tc.connected}
+		act := &radioActivity{}
+		act.keepReply(&replyStats{last: tc.kept, connected: tc.keptSilence})
+		// A reconnectable transport reports its link; the stub has none, so existing is connected.
+		info := b.health(now, act, nil)
+		got := false
+		for _, p := range info.Problems {
+			got = got || p == "radio: board not answering"
+		}
+		if got != tc.want {
+			t.Errorf("%s: problems %v (lastReplySecs %v), want stuck=%v", name, info.Problems, info.Radio.LastReplySecs, tc.want)
+		}
+	}
+}
+
+func TestRadioProblems(t *testing.T) {
+	t.Parallel()
+	secs := func(n int64) *int64 { return &n }
+	up := api.RadioHealth{Connected: true}
+	withTx := func(inARow uint64, failing *int64) api.RadioHealth {
+		r := up
+		r.TxFailedInARow, r.TxFailingSecs = inARow, failing
+		return r
+	}
+	for name, tc := range map[string]struct {
+		radio    api.RadioHealth
+		startErr error
+		want     string
+	}{
+		"healthy":  {radio: up},
+		"no modem": {radio: api.RadioHealth{}, want: "radio: modem not connected"},
+		// The modem was fine: the supervisor closed it because what hangs off it would not start.
+		"companion failed":   {radio: api.RadioHealth{}, startErr: fmt.Errorf("%w: %w", errCompanionStart, errors.New("bad key")), want: "radio: a companion failed to start"},
+		"repeater failed":    {radio: api.RadioHealth{}, startErr: fmt.Errorf("%w: %w", errRepeaterStart, errors.New("x")), want: "radio: the repeater failed to start"},
+		"modem setup failed": {radio: api.RadioHealth{}, startErr: errors.New("kiss connect: no such file"), want: "radio: modem not connected"},
+		// The 2026-09-17 wedge: one packet refused five times a second, with RX and the board's replies fine.
+		"transmit stuck": {radio: withTx(196, secs(130)), want: "radio: transmit failing"},
+		// A late TX_DONE refuses a burst of retries for a second or two, then the send goes out.
+		"a brief refusal":        {radio: withTx(10, secs(2))},
+		"two old failures":       {radio: withTx(2, secs(600))},
+		"the last send went out": {radio: withTx(0, nil)},
+	} {
+		got := strings.Join(radioProblems(tc.radio, tc.startErr), ",")
+		if got != tc.want {
+			t.Errorf("%s: %q, want %q", name, got, tc.want)
+		}
+	}
+}
+
+// A full disk fails every write inside the writer, which drops nothing and so shows nowhere else.
+func TestHealth_ReportsDiskFree(t *testing.T) {
+	t.Parallel()
+	info := newHealthBackend(t).health(time.Now(), &radioActivity{}, nil)
+	if f := info.Database.DiskFreeBytes; f == nil || *f == 0 {
+		t.Errorf("diskFreeBytes = %v, want the free space where the database lives", f)
+	}
 }

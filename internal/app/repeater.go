@@ -29,13 +29,14 @@ func effectiveRepeaterConfig(cfg *config.Config) *config.RepeaterConfig {
 	return &block
 }
 
-func startRepeater(ctx context.Context, cfg *config.Config, mux *node.RadioMux, db *store.Store, hub *api.Hub, stats modem.StatsProvider, reload func() error) (*repeater.Repeater, error) {
+func startRepeater(ctx context.Context, cfg *config.Config, mux *node.RadioMux, db *store.Store, hub *api.Hub, stats modem.StatsProvider, reload func() error, telemetry *telemetryPublisher) (*repeater.Repeater, error) {
 	if cfg.Repeater == nil {
 		return nil, nil
 	}
 	hooks := repeater.Hooks{
 		Reconfigure: repeaterReconfigurer(db, reload),
 		PollStats:   statsPoller(stats),
+		Telemetry:   telemetry.MapFor(store.TelemetryNode{Kind: store.NodeKindRepeater, ID: store.RepeaterNodeID}),
 	}
 	rep, err := repeater.NewRepeater(*effectiveRepeaterConfig(cfg), mux, db, hub, hooks)
 	if err != nil {
@@ -55,7 +56,7 @@ func stopRepeater(rep *repeater.Repeater) {
 }
 
 // reloadRepeater keeps the running instance on an unchanged block: no relay gap, no re-advert.
-func reloadRepeater(ctx context.Context, oldCfg, newCfg *config.Config, running *repeater.Repeater, mux *node.RadioMux, db *store.Store, hub *api.Hub, stats modem.StatsProvider, reload func() error) (*repeater.Repeater, error) {
+func reloadRepeater(ctx context.Context, oldCfg, newCfg *config.Config, running *repeater.Repeater, mux *node.RadioMux, db *store.Store, hub *api.Hub, stats modem.StatsProvider, reload func() error, telemetry *telemetryPublisher) (*repeater.Repeater, error) {
 	// reflect.DeepEqual handles nil/one-nil/deep on the two *RepeaterConfig.
 	if running != nil && oldCfg != nil && reflect.DeepEqual(effectiveRepeaterConfig(oldCfg), effectiveRepeaterConfig(newCfg)) {
 		return running, nil
@@ -66,7 +67,7 @@ func reloadRepeater(ctx context.Context, oldCfg, newCfg *config.Config, running 
 		return running, nil
 	}
 	stopRepeater(running)
-	return startRepeater(ctx, newCfg, mux, db, hub, stats, reload)
+	return startRepeater(ctx, newCfg, mux, db, hub, stats, reload, telemetry)
 }
 
 // onlyRegionsDiffer reports the differences the reload path can apply live, without restarting the node.

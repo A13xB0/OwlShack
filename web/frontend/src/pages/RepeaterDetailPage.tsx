@@ -43,6 +43,7 @@ import {
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { PeerAvatar } from "@/components/PeerAvatar";
+import { PathDialog, type PathInfo } from "@/components/PathDialog";
 import { SignalStrength } from "@/components/SignalStrength";
 import { TelemetryPanel } from "@/components/TelemetryPanel";
 import { SeriesPanel } from "@/components/SeriesPanel";
@@ -51,7 +52,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PositionPicker } from "@/components/PositionPicker";
-import { PATH_HASH_SIZE_OPTIONS } from "@/components/ConfigFields";
 
 import {
   Select,
@@ -67,14 +67,6 @@ import {
   Tabs,
   TabsContent,
 } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -94,7 +86,6 @@ import {
   MonitoringSettings,
   type MonitorMetadata,
 } from "@/components/MonitoringSettings";
-import { advertPathInfo } from "@/components/PeerDetailSheet";
 import { cliCommandsFor, cliConfigKeysFor, type CliRole } from "@/lib/cliCatalog";
 import {
   AddAccessDialog,
@@ -141,13 +132,6 @@ interface Session {
   loggedInAt?: string;
 }
 
-interface PathInfo {
-  outPath: string;
-  hops: number;
-  hasPath: boolean;
-  directNeighbor: boolean;
-  pathHashSize: number;
-}
 
 interface Status {
   batteryMv: number;
@@ -231,8 +215,6 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
   const [saveLogin, setSaveLogin] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
   const [pathDialogOpen, setPathDialogOpen] = useState(false);
-  const [pathInput, setPathInput] = useState("");
-  const [pathHashSizeInput, setPathHashSizeInput] = useState(1);
 
   const peerName = contact?.name || (isSensor ? "Sensor" : isRoom ? "Room" : "Repeater");
   const peerType = contact?.type || (isSensor ? "SENSOR" : isRoom ? "ROOM" : "REPEATER");
@@ -333,8 +315,6 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
             body: JSON.stringify({
               isRepeater: kind === "repeater",
               [passwordKey]: password,
-              monitor: contact?.metadata?.monitor ?? false,
-              monitorIntervalSecs: contact?.metadata?.monitorIntervalSecs ?? 0,
             }),
           },
         ).catch(() => {});
@@ -360,8 +340,6 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
             body: JSON.stringify({
               isRepeater: kind === "repeater",
               [passwordKey]: "",
-              monitor: contact?.metadata?.monitor ?? false,
-              monitorIntervalSecs: contact?.metadata?.monitorIntervalSecs ?? 0,
             }),
           },
         ).catch(() => {});
@@ -419,31 +397,9 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
       toast.success("Path reset to flood");
       await refreshPath();
     } catch {
-      toast.error("Reset path failed");
+      toast.error("Resetting the path failed");
     }
   }, [apiBase, refreshPath]);
-
-  const handleSetPath = useCallback(async () => {
-    const cleaned = pathInput.replace(/[\s,]/g, "");
-    if (!cleaned) {
-      toast.error("Path required");
-      return;
-    }
-    try {
-      const r = await fetch(`${apiBase}/path`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: cleaned, pathHashSize: pathHashSizeInput }),
-      });
-      if (!r.ok) throw new Error("set");
-      toast.success("Path set");
-      setPathDialogOpen(false);
-      setPathInput("");
-      await refreshPath();
-    } catch {
-      toast.error("Set path failed");
-    }
-  }, [apiBase, pathInput, pathHashSizeInput, refreshPath]);
 
   const sendCli = useCallback(
     async (command: string): Promise<string> => {
@@ -531,22 +487,14 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-sm">
                 <DropdownMenuItem
-                  onClick={() => {
-                    setPathInput(
-                      advertPathInfo(
-                        pathInfo?.outPath,
-                        pathInfo?.pathHashSize,
-                      ).path.join(",").toUpperCase(),
-                    );
-                    setPathHashSizeInput(pathInfo?.pathHashSize || 1);
-                    setPathDialogOpen(true);
-                  }}
+                  onClick={() => setPathDialogOpen(true)}
                   className="font-mono text-xs uppercase tracking-[0.08em]"
                 >
-                  <Route className="size-3.5" /> Set path
+                  <Route className="size-3.5" /> Edit path
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleResetPath}
+                  disabled={!pathInfo?.hasPath}
                   className="font-mono text-xs uppercase tracking-[0.08em]"
                 >
                   <RefreshCw className="size-3.5" /> Reset path
@@ -752,71 +700,14 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
         </Tabs>
       )}
 
-      <Dialog
+      <PathDialog
         open={pathDialogOpen}
-        onOpenChange={(o) => {
-          setPathDialogOpen(o);
-          if (!o) setPathInput("");
-        }}
-      >
-        <DialogContent className="rounded-none border-border bg-card">
-          <DialogHeader>
-            <DialogTitle className="font-mono text-sm uppercase tracking-[0.12em]">
-              Set outbound path
-            </DialogTitle>
-            <DialogDescription className="font-mono text-xs">
-              Comma-separated hex hop hashes.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              value={pathInput}
-              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                setPathInput(e.target.value)
-              }
-              placeholder="a4, 1b, e2"
-              className="rounded-none font-mono text-base md:text-xs border-border"
-            />
-            <div className="flex items-center gap-2">
-              <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                Bytes per hop
-              </span>
-              <Select
-                value={String(pathHashSizeInput)}
-                onValueChange={(v) => setPathHashSizeInput(Number(v))}
-              >
-                <SelectTrigger className="rounded-none font-mono text-[10px] uppercase tracking-widest h-7 w-20 border-border bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="rounded-sm">
-                  {PATH_HASH_SIZE_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPathDialogOpen(false)}
-              className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSetPath}
-              className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
-            >
-              Set path
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setPathDialogOpen}
+        companion={decodedName}
+        pubkey={decodedPubkey}
+        name={contact?.name || "this node"}
+        onChanged={refreshPath}
+      />
     </div>
   );
 }

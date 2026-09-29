@@ -61,9 +61,10 @@ Installable as a PWA, with a mobile layout and a light theme.
 | Monitoring | Polled nodes with status and telemetry history charts |
 | Radio | Modem diagnostics: TX outcomes, RX losses, board readings, faults |
 | Discover | Zero-hop scan: which repeaters and sensors are in direct range |
-| Companions | Per-companion chat, contacts, channels, remote repeaters, rooms, sensors |
+| Sensors | I2C sensors and a PiSugar UPS on this host, the radio board's battery and MCU temperature, read every 5 s, values read from a web address such as a weather report, and values worked out from them |
+| Companions | Per-companion chat, contacts, channels, remote repeaters, rooms, sensors, and the telemetry each one publishes |
 | Bots | Create and edit triggers across every companion (group, dm and cron) |
-| Repeater | The repeater this instance runs: relay stats, neighbours, access, settings |
+| Repeater | The repeater this instance runs: relay stats, neighbours, access, the telemetry it publishes, settings |
 | MQTT | Broker management and the companion that feeds the bridge |
 | Settings | Connection, radio parameters, presets, listen address, log level |
 
@@ -529,3 +530,5 @@ proxy that authenticates.
 ## Licence
 
 See [LICENSE](LICENSE).
+
+Region boundaries for CAP bots are from [Natural Earth](https://www.naturalearthdata.com/), which is public domain.

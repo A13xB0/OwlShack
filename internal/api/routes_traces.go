@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 )
 
@@ -31,7 +30,7 @@ func (s *Server) handleSendTrace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req sendTraceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := readJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

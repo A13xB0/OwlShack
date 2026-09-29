@@ -33,6 +33,18 @@ func NewOpenhopStatsProvider(m *openhop.Modem, radio RadioInfo) *openhopStatsPro
 
 func (p *openhopStatsProvider) Transport() string { return "openhop" }
 
+// LastReply is the modem's last STATUS answer. It is what starts the liveness probe, which a serial
+// link needs: TCP drops a silent link after 60 s, but serial has no idle deadline, so a hung board
+// otherwise stays connected and healthy-looking.
+func (p *openhopStatsProvider) LastReply() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastAt
+}
+
+// ConnectedAt is when this link was set up, the start of a silence for a board that has never answered.
+func (p *openhopStatsProvider) ConnectedAt() time.Time { return p.startTime }
+
 // Connected reports the live link state. This driver reconnects on its own, so the modem outlives a
 // dropped link and its existence alone would report a radio that is not there as healthy.
 func (p *openhopStatsProvider) Connected() bool { return p.modem.Connected() }
@@ -62,7 +74,7 @@ func (p *openhopStatsProvider) snapshot() DeviceStats {
 	p.mu.Unlock()
 
 	ds := DeviceStats{UptimeSecs: uint32(time.Since(p.startTime).Seconds())}
-	if at.IsZero() || time.Since(at) > staleReadingAfter {
+	if at.IsZero() || time.Since(at) > StaleReadingAfter {
 		return ds
 	}
 	ds.NoiseFloor = int16(st.NoiseFloor)

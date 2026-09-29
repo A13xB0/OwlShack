@@ -154,8 +154,8 @@ inverted "airtime factor", converted **only** in `Config.AirtimeFactorOr`.
 
 > **Trap:** `PUT /api/config/settings` writes every non-secret field **as sent**,
 > so a partial body resets what it omits to defaults — a `{"dutyCycle":1}` PUT
-> also moves `cr` to 8. Only secret-ish fields (`mapTileKey`) keep their stored
-> value on nil. Always send the whole settings object; the UI does.
+> also moves `cr` to 8. Only secret-ish fields (`mapTileKey`) and `mapProvider` keep their
+> stored value on nil. Always send the whole settings object; the UI does.
 
 ## Path hash size
 
@@ -170,7 +170,7 @@ overrides:
 - **Everything internal speaks bytes.** The firmware's `path.hash.mode` is
   bytes-1 and its `set` handler checks `mode < 3`, so 0-2 = 1-3 bytes. Convert
   only in `cliGet`/`setMutation` — never store the mode. (The old
-  `RepeaterConfig.PathHashMode` was removed; `migrateV9` converted the column
+  `RepeaterConfig.PathHashMode` was removed; `008_map_region_path_hash.sql` converted the column
   to `path_hash_size` with `mode + 1`.) `RepeaterDetailPage` still speaks mode,
   correctly: it drives *remote* firmware over the CLI.
 - **Inheritance is resolved at startup, not read at use.**
@@ -181,7 +181,8 @@ overrides:
   config, so a node's stored nil keeps following the global.
 - Consumers: `advert.SendSelf` (takes bytes, writes size-1 into PathLength's
   top 2 bits), `Companion.sendGroupReply`, and the repeater's adverts.
-  Direct-routed sends are unaffected — they use the *learned*
-  `OutPathHashSize` from the peer/contact. Trigger `pathHashSize` still wins
-  over the companion default (`resolvePathHashSize`, where 0 = mirror the
+  Anything sent to a contact uses that contact's own bytes per hop instead (`companion_contacts.path_hash_size`, see
+  [firmware-protocol.md](./firmware-protocol.md)), flooded or direct; a
+  learned route keeps the size it was learned at. Trigger `pathHashSize` still wins
+  over the contact's or companion's default (`resolvePathHashSize`, where 0 = mirror the
   incoming packet).

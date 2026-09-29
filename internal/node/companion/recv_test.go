@@ -3,6 +3,8 @@ package companion
 import (
 	"testing"
 	"time"
+
+	"github.com/meshcore-go/OwlShack/internal/modem"
 )
 
 // plaintext builds a TXT_MSG body the way BaseChatMesh::composeMsgPacket does: attempts 0-3 ride
@@ -133,9 +135,14 @@ func TestRecentDM_DistinctTextsInOneSecondBothSurvive(t *testing.T) {
 }
 
 // fakeStats reports a fixed airtime, standing in for the modem's radio params.
-type fakeStats struct{ airtime uint32 }
+type fakeStats struct {
+	airtime uint32
+	device  modem.DeviceStats
+}
 
 func (f fakeStats) EstAirtimeMs(int) uint32 { return f.airtime }
+
+func (f fakeStats) CachedStats() modem.DeviceStats { return f.device }
 
 func TestDMAckTimeout(t *testing.T) {
 	t.Parallel()

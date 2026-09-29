@@ -37,6 +37,9 @@ const (
 // a 4xx — so the item is recorded as seen instead of being retried forever.
 var errItemPermanent = errors.New("permanent item failure")
 
+// errDeferred is an item left for the next poll because this one has done enough work.
+var errDeferred = errors.New("left for the next poll")
+
 // itemDecoder turns one feed item into template data plus the named pieces of text match patterns
 // run against, one entry per matchable field.
 type itemDecoder func(ctx context.Context, feed *gofeed.Feed, item *gofeed.Item) (data map[string]any, fields map[string]string, err error)
@@ -52,7 +55,13 @@ type feedPoller struct {
 	matcher  fieldMatcher
 	parser   *gofeed.Parser
 	decode   itemDecoder
-	log      *slog.Logger
+	// place says where a decoded item falls against the trigger's location; only a cap trigger with one looks.
+	place func(data map[string]any) Placement
+	// alertKey is a decoded item's identity and sent time, for a feed that posts one message under several entries.
+	alertKey func(data map[string]any) (key string, sent, keepUntil time.Time)
+	// documentKey is what an item links to, so the Test can list an alert once; nil when unknown.
+	documentKey func(item *gofeed.Item) string
+	log         *slog.Logger
 
 	mu       sync.Mutex
 	cron     *cron.Cron
@@ -64,6 +73,11 @@ type feedPoller struct {
 	seen   map[string]int
 	polls  int
 	primed bool
+	// handled holds the alert keys already sent or set aside, each until its alert is past.
+	handled map[string]time.Time
+	// primedDocs and primedAt are what the feed linked to at the start, so a later entry for an alert up then is backlog.
+	primedDocs map[string]bool
+	primedAt   time.Time
 }
 
 func newFeedPoller(kind, botName string, cfg config.TriggerConfig, log *slog.Logger) (*feedPoller, error) {
@@ -86,14 +100,17 @@ func newFeedPoller(kind, botName string, cfg config.TriggerConfig, log *slog.Log
 	parser.Client = &http.Client{Timeout: feedPollTimeout}
 
 	return &feedPoller{
-		botName:  botName,
-		kind:     kind,
-		url:      cfg.URL,
-		schedule: schedule,
-		matcher:  matcher,
-		parser:   parser,
-		log:      log.With("trigger", kind, "url", cfg.URL),
-		seen:     map[string]int{},
+		botName:    botName,
+		kind:       kind,
+		url:        cfg.URL,
+		schedule:   schedule,
+		matcher:    matcher,
+		parser:     parser,
+		place:      func(map[string]any) Placement { return PlacementAnywhere },
+		log:        log.With("trigger", kind, "url", cfg.URL),
+		seen:       map[string]int{},
+		handled:    map[string]time.Time{},
+		primedDocs: map[string]bool{},
 	}, nil
 }
 
@@ -155,34 +172,92 @@ func (p *feedPoller) poll(ctx context.Context) {
 	}
 
 	p.polls++
+	if !p.primed {
+		p.primedAt = time.Now()
+	}
 	sort.Sort(feed) // oldest first, so a backlog goes out in the order it happened
 
-	for _, item := range p.freshItems(feed) {
-		data, fields, err := p.decode(pollCtx, feed, item)
-		if err != nil {
-			// Only a permanent failure is recorded; one that failed once is retried next poll.
-			if errors.Is(err, errItemPermanent) {
-				p.seen[itemID(item)] = p.polls
-			}
-			p.log.Warn("feed item skipped", "item", itemID(item), "error", err)
+	// Newest first, so the newest win the cap on sends; they go out oldest first below.
+	type send struct {
+		ev   Event
+		item *gofeed.Item
+	}
+	fresh := p.freshItems(feed)
+	var sends []send
+	unread := 0
+	for i := len(fresh) - 1; i >= 0; i-- {
+		item := fresh[i]
+		if len(sends) == feedMaxPerPoll {
+			p.seen[itemID(item)] = p.polls
+			unread++
 			continue
 		}
-		p.seen[itemID(item)] = p.polls
-
-		captures := p.matcher.match(fields)
-		if captures == nil {
-			p.log.Log(ctx, logging.LevelTrace, "no pattern matched",
-				"item", itemID(item), "patterns", p.matcher)
-			continue
+		// Each item's own fetch runs on ctx, not the feed's deadline, so one slow alert cannot starve the rest.
+		if ev, ok := p.consider(ctx, feed, item); ok {
+			sends = append(sends, send{ev, item})
 		}
-		data["Match"] = captures
-
-		p.log.Info("feed item fired", "item", itemID(item), "title", item.Title)
-		cb(Event{Type: p.kind, BotName: p.botName, Data: data})
+	}
+	if unread > 0 {
+		p.log.Warn("feed burst clamped", "sent", feedMaxPerPoll, "unread", unread)
+	}
+	for i := len(sends) - 1; i >= 0; i-- {
+		p.log.Info("feed item fired", "item", itemID(sends[i].item), "title", sends[i].item.Title)
+		cb(sends[i].ev)
 	}
 
 	p.primed = true
 	p.forgetStale()
+}
+
+// consider reports the event one fresh item would send, recording it as seen unless the next poll might do better.
+func (p *feedPoller) consider(ctx context.Context, feed *gofeed.Feed, item *gofeed.Item) (Event, bool) {
+	id := itemID(item)
+	data, fields, err := p.decode(ctx, feed, item)
+	switch {
+	case errors.Is(err, errDeferred):
+		p.log.Debug("feed item left for the next poll", "item", id)
+		return Event{}, false
+	case err != nil:
+		// Only a permanent failure is recorded; one that failed once is retried next poll.
+		if errors.Is(err, errItemPermanent) {
+			p.seen[id] = p.polls
+		}
+		p.log.Warn("feed item skipped", "item", id, "error", err)
+		return Event{}, false
+	}
+	p.seen[id] = p.polls
+
+	// An alert is marked handled only once sent, so a copy that fails a filter cannot hide one that passes.
+	var key string
+	var until time.Time
+	if p.alertKey != nil {
+		var sent time.Time
+		key, sent, until = p.alertKey(data)
+		if _, ok := p.handled[key]; ok && key != "" {
+			p.log.Log(ctx, logging.LevelTrace, "item repeats an alert already handled", "item", id)
+			return Event{}, false
+		}
+		if key != "" && p.documentKey != nil && p.primedDocs[p.documentKey(item)] && sent.Before(p.primedAt) {
+			p.handled[key] = until
+			p.log.Log(ctx, logging.LevelTrace, "item is an alert that was already up when the bot started", "item", id)
+			return Event{}, false
+		}
+	}
+
+	if pl := p.place(data); !pl.sends() {
+		p.log.Log(ctx, logging.LevelTrace, "item outside the location", "item", id, "placement", pl)
+		return Event{}, false
+	}
+	captures := p.matcher.match(fields)
+	if captures == nil {
+		p.log.Log(ctx, logging.LevelTrace, "no pattern matched", "item", id, "patterns", p.matcher)
+		return Event{}, false
+	}
+	data["Match"] = captures
+	if key != "" {
+		p.handled[key] = until
+	}
+	return Event{Type: p.kind, BotName: p.botName, Data: data}, true
 }
 
 // freshItems marks every item it sees and returns only those worth firing on: none at all on the
@@ -201,17 +276,12 @@ func (p *feedPoller) freshItems(feed *gofeed.Feed) []*gofeed.Item {
 		}
 		if !p.primed {
 			p.seen[id] = p.polls
+			if p.documentKey != nil {
+				p.primedDocs[p.documentKey(item)] = true
+			}
 			continue
 		}
 		fresh = append(fresh, item)
-	}
-
-	if len(fresh) > feedMaxPerPoll {
-		p.log.Warn("feed burst clamped", "new", len(fresh), "sending", feedMaxPerPoll)
-		for _, item := range fresh[:len(fresh)-feedMaxPerPoll] {
-			p.seen[itemID(item)] = p.polls
-		}
-		fresh = fresh[len(fresh)-feedMaxPerPoll:]
 	}
 	return fresh
 }
@@ -220,6 +290,12 @@ func (p *feedPoller) forgetStale() {
 	for id, last := range p.seen {
 		if p.polls-last > feedForgetAfter {
 			delete(p.seen, id)
+		}
+	}
+	now := time.Now()
+	for k, until := range p.handled {
+		if now.After(until) {
+			delete(p.handled, k)
 		}
 	}
 }

@@ -36,6 +36,11 @@ type CompanionConfig struct {
 	// DMAllow is the allowlist policy's peer pubkeys, full or prefix hex.
 	DMAllow *[]string `json:"dmAllow,omitempty" yaml:"dmAllow,omitempty" toml:"dmAllow,omitempty"`
 
+	// Telemetry* is who may read each class: nobody, contacts granted it, or every contact. Only contacts are answered.
+	TelemetryBase        *string `json:"telemetryBase,omitempty" yaml:"telemetryBase,omitempty" toml:"telemetryBase,omitempty"`
+	TelemetryLocation    *string `json:"telemetryLocation,omitempty" yaml:"telemetryLocation,omitempty" toml:"telemetryLocation,omitempty"`
+	TelemetryEnvironment *string `json:"telemetryEnvironment,omitempty" yaml:"telemetryEnvironment,omitempty" toml:"telemetryEnvironment,omitempty"`
+
 	// Deprecated: mqtt lives at the top level of Config; legacy blocks here are hoisted by ApplyDefaults.
 	Mqtt *MqttConfig `json:"mqtt,omitempty" yaml:"mqtt,omitempty" toml:"mqtt,omitempty"`
 }
@@ -54,6 +59,25 @@ const (
 	DMPolicyAllowlist = "allowlist" // only the pubkeys in DMAllow
 	DMPolicyAnyone    = "anyone"    // any peer we can decrypt, which is any advert we have heard
 )
+
+// Telemetry read policies, one per firmware permission class; an unset mode denies, as the firmware does.
+const (
+	TelemetryDeny     = "deny"     // no one
+	TelemetrySelected = "selected" // only contacts granted this class
+	TelemetryContacts = "contacts" // every contact
+)
+
+// TelemetryModeOrDefault resolves an unset or unrecognised class to deny, never to a grant.
+func TelemetryModeOrDefault(mode *string) string {
+	if mode == nil {
+		return TelemetryDeny
+	}
+	switch *mode {
+	case TelemetrySelected, TelemetryContacts:
+		return *mode
+	}
+	return TelemetryDeny
+}
 
 // DMPolicyOrDefault resolves an unset policy to the behaviour every install had before the setting existed.
 func (c *CompanionConfig) DMPolicyOrDefault() string {

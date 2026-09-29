@@ -17,13 +17,16 @@ import (
 	"github.com/meshcore-go/OwlShack/internal/echo"
 	"github.com/meshcore-go/OwlShack/internal/modem"
 	"github.com/meshcore-go/OwlShack/internal/mqtt"
+	"github.com/meshcore-go/OwlShack/internal/sensor"
 	"github.com/meshcore-go/OwlShack/internal/store"
 	"github.com/meshcore-go/OwlShack/internal/trigger"
 )
 
-// airtimeEstimator is the one method a send needs off the modem, so the timeout logic can be tested without a radio.
-type airtimeEstimator interface {
+// modemReadings is the slice of the modem a companion needs, so a send and a telemetry reply test without a radio.
+type modemReadings interface {
 	EstAirtimeMs(packetLen int) uint32
+	// CachedStats is the last poll, never a fresh one: this is read on the packet path.
+	CachedStats() modem.DeviceStats
 }
 
 type triggerEntry struct {
@@ -56,8 +59,11 @@ type Companion struct {
 
 	echoTracker *echo.Tracker
 	repeaters   *repeater.Client
-	// stats is narrowed to what a send needs: modem.StatsProvider satisfies it.
-	stats airtimeEstimator
+	// stats is narrowed to what a send and a telemetry reply need: modem.StatsProvider satisfies it.
+	stats modemReadings
+
+	// telemetry is the operator's channel map and the readings behind it; nil publishes no sensors.
+	telemetry func() ([]sensor.ChannelEntry, []sensor.Status)
 
 	pendingOutbound struct {
 		sync.Mutex
@@ -107,6 +113,8 @@ func NewCompanion(cfg config.CompanionConfig, mux *node.RadioMux, st *store.Stor
 	n := node.New(id, radio, opts...)
 
 	companion := &Companion{
+		// RX handlers are live before Start sets the real one, and a DM in between must not query with a nil context.
+		runCtx:      context.Background(),
 		cfg:         cfg,
 		node:        n,
 		radio:       &radio,
@@ -117,8 +125,8 @@ func NewCompanion(cfg config.CompanionConfig, mux *node.RadioMux, st *store.Stor
 		hub:         hub,
 		echoTracker: echoTracker,
 		stats:       stats,
-		repeaters:   repeater.NewClient(n, st, cfg.ID, log, stats),
 	}
+	companion.repeaters = repeater.NewClient(n, st, cfg.ID, log, stats, companion.pathHashSize)
 
 	// The companion's channels are the only ones this node listens on; triggers reference them by name and register none of their own.
 	if cfg.Channels != nil {
@@ -214,6 +222,13 @@ func (c *Companion) Name() string {
 // ID returns the surrogate primary key all of this companion's history is stored under, so a rename keeps it attached.
 func (c *Companion) ID() int64 {
 	return c.cfg.ID
+}
+
+// SetTelemetry binds this companion's channel map hook; the app owns the map across reloads.
+func (c *Companion) SetTelemetry(fn func() ([]sensor.ChannelEntry, []sensor.Status)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.telemetry = fn
 }
 
 // LatLon returns the companion's configured position (nil if unset).

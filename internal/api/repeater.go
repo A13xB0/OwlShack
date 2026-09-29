@@ -1,8 +1,15 @@
 package api
 
 import (
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+
+	meshcore "github.com/meshcore-go/meshcore-go"
+
+	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
 func (s *Server) repeaterOps(name string) (*RepeaterOps, bool) {
@@ -238,6 +245,7 @@ func (s *Server) handleRepeaterPathSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
+		Route        string `json:"route"` // flood | direct | path
 		Path         string `json:"path"`
 		PathHashSize int    `json:"pathHashSize"`
 	}
@@ -245,12 +253,41 @@ func (s *Server) handleRepeaterPathSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if body.Path == "" {
-		writeError(w, http.StatusBadRequest, "path is required")
+	hs := body.PathHashSize
+	if hs < 1 || hs > 3 {
+		writeError(w, http.StatusBadRequest, "bytes per hop must be 1, 2 or 3")
+		return
+	}
+	var path []byte
+	switch body.Route {
+	case "flood":
+	case "direct":
+		path = []byte{}
+	case "path":
+		var err error
+		if path, err = hex.DecodeString(body.Path); err != nil || len(path) == 0 {
+			writeError(w, http.StatusBadRequest, "path must be hex with at least one hop")
+			return
+		}
+		// The length byte packs hashSize-1 into 2 bits and the hop count into 6 (Packet.h).
+		switch {
+		case len(path)%hs != 0:
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("the path is %d bytes, which is not whole %d-byte hops", len(path), hs))
+			return
+		case len(path)/hs > 63 || !meshcore.IsValidPathLen(uint8((hs-1)<<6|len(path)/hs)):
+			writeError(w, http.StatusBadRequest, "the path is longer than 63 hops or 64 bytes")
+			return
+		}
+	default:
+		writeError(w, http.StatusBadRequest, `route must be "flood", "direct" or "path"`)
 		return
 	}
 
-	if err := ops.PathSet(r.PathValue("pubkey"), body.Path, body.PathHashSize); err != nil {
+	if err := ops.PathSet(r.PathValue("pubkey"), path, uint8(hs)); err != nil {
+		if errors.Is(err, store.ErrNotContact) {
+			writeError(w, http.StatusNotFound, "add the node as a contact first: a path is saved on its contact")
+			return
+		}
 		s.log.Error("repeater path update", "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

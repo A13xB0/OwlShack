@@ -32,6 +32,7 @@ func TestTriggerRepo_RoundTrip(t *testing.T) {
 		PathHashSize:       iptr(2),
 		Schedule:           sptr("@every 15m"),
 		URL:                "https://example.com/cap.atom",
+		Location:           &TriggerLocation{Lat: -35.725, Lon: 174.323, RadiusKm: 25},
 		ChannelIDs:         []int64{ch.ID},
 	}
 	if err := st.Triggers.Create(t.Context(), want); err != nil {
@@ -51,6 +52,8 @@ func TestTriggerRepo_RoundTrip(t *testing.T) {
 	want.URL = "https://example.com/other.atom"
 	want.Schedule = sptr("@every 2h")
 	want.MatchPatterns = []string{"event:(?i)tsunami"}
+	want.Location = nil
+	want.Regions = &[]string{"NZL-3398", "NZL-3400"}
 	if err := st.Triggers.Update(t.Context(), want); err != nil {
 		t.Fatalf("Triggers.Update: %v", err)
 	}
@@ -72,5 +75,21 @@ func TestTriggerRepo_RoundTrip(t *testing.T) {
 	}
 	if len(list) != 1 || !reflect.DeepEqual(&list[0], want) {
 		t.Fatalf("ListByCompanion returned %+v", list)
+	}
+}
+
+// A location is all three columns or none; anything between must not read back as "anywhere".
+func TestTriggerRepo_PartialLocationIsAnError(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	tr := &Trigger{CompanionID: mkCompanion(t, st, "bot"), Type: "cap", Template: "x", URL: "https://example.com/cap"}
+	if err := st.Triggers.Create(t.Context(), tr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.ExecContext(t.Context(), `UPDATE triggers SET location_lat = -36.8 WHERE id = ?`, tr.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Triggers.Get(t.Context(), tr.ID); err == nil {
+		t.Error("a trigger with only a latitude read back without error")
 	}
 }

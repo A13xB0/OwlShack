@@ -15,7 +15,7 @@ var matchFields = map[string][]string{
 	"rss": {"title", "description", "content", "link", "author", "category"},
 	"cap": {
 		"event", "headline", "description", "instruction", "severity", "urgency",
-		"certainty", "msgtype", "status", "area", "sender", "category",
+		"certainty", "msgtype", "status", "area", "geocode", "sender", "category",
 	},
 }
 

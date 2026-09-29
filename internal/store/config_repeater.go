@@ -92,10 +92,18 @@ func (r *RepeaterRepo) Set(ctx context.Context, rep *Repeater) error {
 	return nil
 }
 
-// Clear removes the repeater row (no repeater configured).
+// Clear removes the repeater and the channel map it published, which the next repeater created would otherwise inherit.
 func (r *RepeaterRepo) Clear(ctx context.Context) error {
-	if _, err := r.db.ExecContext(ctx, `DELETE FROM repeater`); err != nil {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
 		return fmt.Errorf("clearing repeater: %w", err)
 	}
-	return nil
+	defer tx.Rollback()
+	if err := deleteTelemetryMapForNode(ctx, tx, TelemetryNode{Kind: NodeKindRepeater, ID: RepeaterNodeID}); err != nil {
+		return fmt.Errorf("clearing the repeater's telemetry map: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM repeater`); err != nil {
+		return fmt.Errorf("clearing repeater: %w", err)
+	}
+	return tx.Commit()
 }

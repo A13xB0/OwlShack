@@ -98,6 +98,10 @@ type Config struct {
 
 	// Web UI
 	ListenAddr *string `json:"listenAddr" yaml:"listenAddr" toml:"listenAddr"`
+	// MapProvider is the basemap, one of MapProviders; nil takes CARTO when MapTileKey is set, else OpenStreetMap.
+	MapProvider *string `json:"mapProvider,omitempty" yaml:"mapProvider,omitempty" toml:"mapProvider,omitempty"`
+	// MapDarkStyle is how OSM is recoloured in dark mode, one of MapDarkStyles; nil is original.
+	MapDarkStyle *string `json:"mapDarkStyle,omitempty" yaml:"mapDarkStyle,omitempty" toml:"mapDarkStyle,omitempty"`
 	// https://carto.com/basemaps/apikey/
 	MapTileKey *string `json:"mapTileKey" yaml:"mapTileKey" toml:"mapTileKey"`
 
@@ -143,6 +147,38 @@ func DefaultConfig() Config {
 		CR:         &cr,
 		TX:         &tx,
 	}
+}
+
+const (
+	MapProviderOSM   = "osm"
+	MapProviderCarto = "carto"
+)
+
+var MapProviders = []string{MapProviderOSM, MapProviderCarto}
+
+const (
+	MapDarkOriginal   = "original"
+	MapDarkSimplified = "simplified"
+)
+
+var MapDarkStyles = []string{MapDarkOriginal, MapDarkSimplified}
+
+func (c *Config) MapDarkStyleOr() string {
+	if c.MapDarkStyle != nil {
+		return *c.MapDarkStyle
+	}
+	return MapDarkOriginal
+}
+
+// MapProviderOr is the basemap to store, choosing for a config file that predates the field as migration 019 does.
+func (c *Config) MapProviderOr() string {
+	switch {
+	case c.MapProvider != nil:
+		return *c.MapProvider
+	case c.MapTileKey != nil && *c.MapTileKey != "":
+		return MapProviderCarto
+	}
+	return MapProviderOSM
 }
 
 // PublicChannelName is the well-known public channel every companion joins.

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Contact, MapPin, Plus, Send, UserRound } from "lucide-react";
 import L from "leaflet";
-import { themeTileLayer } from "@/lib/leaflet";
+import { themeTileLayer, useThemeTiles } from "@/lib/leaflet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -225,6 +225,7 @@ function ShareLocationDialog({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const tileRef = useRef<L.TileLayer | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const [picked, setPicked] = useState<{ lat: number; lon: number } | null>(
     initialLat != null && initialLon != null
@@ -238,10 +239,8 @@ function ShareLocationDialog({
       initialLat != null && initialLon != null
         ? [initialLat, initialLon]
         : [0, 0];
-    const map = L.map(containerRef.current, {
-      attributionControl: false,
-    }).setView(center, initialLat != null ? 12 : 2);
-    themeTileLayer().addTo(map);
+    const map = L.map(containerRef.current).setView(center, initialLat != null ? 12 : 2);
+    tileRef.current = themeTileLayer().addTo(map);
     if (initialLat != null && initialLon != null) {
       markerRef.current = L.marker([initialLat, initialLon]).addTo(map);
     }
@@ -258,9 +257,12 @@ function ShareLocationDialog({
       window.clearTimeout(t);
       map.remove();
       mapRef.current = null;
+      tileRef.current = null;
       markerRef.current = null;
     };
   }, [open, initialLat, initialLon]);
+
+  useThemeTiles(mapRef, tileRef);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

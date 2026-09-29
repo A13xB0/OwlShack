@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  Activity,
   AlertTriangle,
   Battery,
   CircleDashed,
@@ -26,6 +27,7 @@ import { SectionTitle } from "@/components/SectionTitle";
 import { PeerAvatar } from "@/components/PeerAvatar";
 import { SignalStrength } from "@/components/SignalStrength";
 import { ConnectionPill, PeerTypePill } from "@/components/StatusIndicator";
+import { TelemetryMapEditor } from "@/components/TelemetryMapEditor";
 import { PeerDetailSheet, type PeerLike } from "@/components/PeerDetailSheet";
 import {
   AddAccessDialog,
@@ -79,7 +81,9 @@ const LOOP_LEVELS = ["off", "minimal", "moderate", "strict"];
 
 const DISCOVER_COOLDOWN_SECS = 30;
 
-type TabKey = "status" | "neighbors" | "access" | "settings";
+const repeaterNode = { kind: "repeater", id: 1 } as const;
+
+type TabKey = "status" | "neighbors" | "access" | "telemetry" | "settings";
 
 interface Live {
   stats: RepeaterNodeStats | null;
@@ -220,7 +224,8 @@ export function RepeaterNodePage() {
 
       {error && <LoadErrorAlert message={error} onRetry={reload} />}
 
-      {loading ? (
+      {/* Only the first load: a reload after a save would unmount the tabs and the unsaved map with them. */}
+      {loading && !rep ? (
         <Skeleton className="h-64 w-full rounded-none" />
       ) : !configured || !rep ? (
         <CreateCard onCreated={reload} />
@@ -274,6 +279,9 @@ export function RepeaterNodePage() {
               <RepeaterTab value="access" icon={<Shield className="size-3" />}>
                 Access
               </RepeaterTab>
+              <RepeaterTab value="telemetry" icon={<Activity className="size-3" />}>
+                Telemetry
+              </RepeaterTab>
               <RepeaterTab value="settings" icon={<SettingsIcon className="size-3" />}>
                 Settings
               </RepeaterTab>
@@ -307,6 +315,14 @@ export function RepeaterNodePage() {
                 refreshing={refreshing}
                 onRefresh={refreshLive}
               />
+            </TabsContent>
+            {/* Kept mounted, or switching tabs throws away an unsaved map; it reads SQLite, not the radio, so nothing is spammed. */}
+            <TabsContent
+              value="telemetry"
+              forceMount
+              className="mt-0 data-[state=inactive]:hidden"
+            >
+              <TelemetryMapEditor node={repeaterNode} />
             </TabsContent>
             <TabsContent value="settings" className="mt-0">
               <SettingsTab rep={rep} reload={reload} />

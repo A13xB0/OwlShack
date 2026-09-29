@@ -1,16 +1,21 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
-	"github.com/meshcore-go/meshcore-go/node"
 
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
@@ -23,8 +28,9 @@ type contactJSON struct {
 	Lon             int32                 `json:"lon"`
 	Feat1           uint16                `json:"feat1"`
 	Feat2           uint16                `json:"feat2"`
-	OutPath         string                `json:"outPath,omitempty"`
+	OutPath         *string               `json:"outPath"` // null = unknown (flood), "" = direct
 	OutPathHashSize uint8                 `json:"outPathHashSize"`
+	PathHashSize    uint8                 `json:"pathHashSize"` // bytes per hop for everything sent
 	LastSeen        string                `json:"lastSeen,omitempty"`
 	LastAdvertTS    uint32                `json:"lastAdvertTs"`
 	AddedAt         string                `json:"addedAt"`
@@ -45,13 +51,22 @@ func (s *Server) contactToJSON(c *store.Contact) contactJSON {
 		Lon:             c.Lon,
 		Feat1:           c.Feat1,
 		Feat2:           c.Feat2,
-		OutPath:         hex.EncodeToString(c.OutPath),
+		OutPath:         outPathHex(c.OutPath),
 		OutPathHashSize: c.OutPathHashSize,
+		PathHashSize:    c.PathHashSize,
 		LastSeen:        lastSeen,
 		LastAdvertTS:    c.LastAdvertTS,
 		AddedAt:         c.AddedAt.UTC().Format(time.RFC3339),
 		Metadata:        c.Metadata,
 	}
+}
+
+func outPathHex(p []byte) *string {
+	if p == nil {
+		return nil
+	}
+	h := hex.EncodeToString(p)
+	return &h
 }
 
 // validPeerType mirrors meshcore-go's advert type-string mapping.
@@ -189,7 +204,7 @@ func (s *Server) handleAddContact(w http.ResponseWriter, r *http.Request) {
 		if addErr = s.store.Contacts.Add(r.Context(), cid, pubkey, storeName, storeType); addErr != nil {
 			return
 		}
-		// Backfill from the heard peer so location/path/feat don't wait for the next advert.
+		// Backfill from the heard peer so location/feat don't wait for the next advert; a send-path is only ever learned (BaseChatMesh.cpp:111).
 		if existing != nil {
 			hasLoc := existing.HasLocation()
 			_ = s.store.Contacts.RefreshFromAdvert(
@@ -197,13 +212,6 @@ func (s *Server) handleAddContact(w http.ResponseWriter, r *http.Request) {
 				existing.Lat, existing.Lon, existing.Feat1, existing.Feat2,
 				existing.LastSeen, existing.LastAdvertTS, hasLoc,
 			)
-			if len(existing.OutPath) > 0 {
-				hs := existing.OutPathHashSize
-				if hs == 0 {
-					hs = 1
-				}
-				_ = s.store.Contacts.UpdateOutPath(r.Context(), cid, pubkey, node.ReverseHops(existing.OutPath, int(hs)), hs)
-			}
 		}
 	})
 	if addErr != nil {
@@ -246,6 +254,65 @@ func (s *Server) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// maxLoginPassword is the firmware's char password[16], so a longer one can never log in.
+const maxLoginPassword = 15
+
+// monitorProbes are the bundles the poller runs; naming none runs them all.
+var monitorProbes = []string{"status", "telemetry", "neighbors"}
+
+// checkContactPatch refuses an unknown or null field, since either would change nothing and still answer 204, and holds each named value to what the form offers.
+func checkContactPatch(patch json.RawMessage) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(patch, &fields); err != nil || fields == nil {
+		return errors.New("the body must be a JSON object of the fields to change")
+	}
+	for _, k := range slices.Sorted(maps.Keys(fields)) {
+		if bytes.Equal(bytes.TrimSpace(fields[k]), []byte("null")) {
+			return fmt.Errorf("%s may not be null; send its empty value to clear it", k)
+		}
+	}
+	dec := json.NewDecoder(bytes.NewReader(patch))
+	dec.DisallowUnknownFields()
+	var m store.ContactMetadata
+	if err := dec.Decode(&m); err != nil {
+		if te := (*json.UnmarshalTypeError)(nil); errors.As(err, &te) {
+			return fmt.Errorf("%s cannot be %s", te.Field, te.Value)
+		}
+		return errors.New(strings.TrimPrefix(err.Error(), "json: "))
+	}
+
+	for _, pw := range []struct{ name, v string }{{"repeaterPassword", m.RepeaterPassword}, {"roomPassword", m.RoomPassword}} {
+		if len(pw.v) > maxLoginPassword {
+			return fmt.Errorf("%s is %d bytes, and a node keeps at most %d", pw.name, len(pw.v), maxLoginPassword)
+		}
+		if strings.ContainsFunc(pw.v, unicode.IsControl) {
+			return fmt.Errorf("%s has a control character in it", pw.name)
+		}
+	}
+	if v := m.MonitorIntervalSecs; v != 0 && (v < 900 || v > 86400) {
+		return fmt.Errorf("monitorIntervalSecs %d is outside 900 to 86400, or 0 for the default", v)
+	}
+	if v := m.MonitorRetrySecs; v != 0 && (v < 60 || v > 1800) {
+		return fmt.Errorf("monitorRetrySecs %d is outside 60 to 1800, or 0 for the default", v)
+	}
+	if v := m.MonitorMaxRetries; v < -1 || v > 10 {
+		return fmt.Errorf("monitorMaxRetries %d is outside -1 (none) to 10", v)
+	}
+	for i, p := range m.MonitorProbes {
+		if !slices.Contains(monitorProbes, p) {
+			return fmt.Errorf("monitorProbes has %q, which is not one of %s", p, strings.Join(monitorProbes, ", "))
+		}
+		if slices.Contains(m.MonitorProbes[:i], p) {
+			return fmt.Errorf("monitorProbes names %q twice", p)
+		}
+	}
+	// The three TELEM_PERM_* classes: base, location and environment.
+	if m.TelemPerms&^0x07 != 0 {
+		return fmt.Errorf("telemPerms %#x has bits beyond the three classes", m.TelemPerms)
+	}
+	return nil
+}
+
 func (s *Server) handleUpdateContactMetadata(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	pubkeyHex := r.PathValue("pubkey")
@@ -261,18 +328,35 @@ func (s *Server) handleUpdateContactMetadata(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var meta store.ContactMetadata
-	if err := readJSON(r, &meta); err != nil {
+	// Decoded onto what is stored, so a partial caller changes only the fields it names.
+	var patch json.RawMessage
+	if err := readJSON(r, &patch); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := checkContactPatch(patch); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var updateErr error
 	s.store.WriteSync(func() {
-		updateErr = s.store.Contacts.UpdateMetadata(r.Context(), cid, pubkey, meta)
+		c, err := s.store.Contacts.Get(r.Context(), cid, pubkey)
+		if err != nil {
+			updateErr = err
+			return
+		}
+		meta := c.Metadata
+		if updateErr = json.Unmarshal(patch, &meta); updateErr == nil {
+			updateErr = s.store.Contacts.UpdateMetadata(r.Context(), cid, pubkey, meta)
+		}
 	})
+	if errors.Is(updateErr, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "contact not found")
+		return
+	}
 	if updateErr != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update contact metadata")
+		s.serverError(w, "failed to update contact metadata", updateErr)
 		return
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/meshcore-go/meshcore-go/node"
 
 	"github.com/meshcore-go/OwlShack/internal/config"
+	"github.com/meshcore-go/OwlShack/internal/sensor"
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
@@ -223,7 +224,7 @@ func TestTelemetryBody(t *testing.T) {
 	r.batteryMV.Store(4168)
 	r.haveBattery.Store(true)
 
-	body, ok := r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil)
+	body, ok := r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil, sensor.MaxReplyBody(nil))
 	if !ok {
 		t.Fatal("telemetry request answered nothing")
 	}
@@ -234,14 +235,14 @@ func TestTelemetryBody(t *testing.T) {
 	if len(readings) != 1 {
 		t.Fatalf("got %d readings without an MCU temp, want 1 (voltage only)", len(readings))
 	}
-	// LPP voltage resolution is 0.01 V, so 4168 mV encodes as 4.16.
-	if readings[0].Channel != telemChannelSelf || readings[0].Value != 4.16 {
-		t.Errorf("voltage = ch%d %v, want ch%d 4.16", readings[0].Channel, readings[0].Value, telemChannelSelf)
+	// LPP voltage resolution is 0.01 V and the encoder rounds, so 4168 mV encodes as 4.17.
+	if readings[0].Channel != telemChannelSelf || readings[0].Value != 4.17 {
+		t.Errorf("voltage = ch%d %v, want ch%d 4.17", readings[0].Channel, readings[0].Value, telemChannelSelf)
 	}
 
 	r.mcuTempC.Store(227)
 	r.haveMCUTemp.Store(true)
-	body, _ = r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil)
+	body, _ = r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil, sensor.MaxReplyBody(nil))
 	readings, err = meshcore.LPPDecode(body)
 	if err != nil {
 		t.Fatalf("LPPDecode with temp: %v", err)
@@ -856,7 +857,7 @@ func TestRegionPrefixLookup(t *testing.T) {
 	}
 }
 
-// Telemetry is not ACL-gated, and payload[0] is an INVERSE mask, not granted permissions.
+// A guest is answered too, payload[0] is an INVERSE mask, and base goes out whatever it says (firmware handleRequest).
 func TestTelemetryHonoursTheRequestersInverseMask(t *testing.T) {
 	newRepeater := func() *Repeater {
 		r := &Repeater{}
@@ -874,13 +875,13 @@ func TestTelemetryHonoursTheRequestersInverseMask(t *testing.T) {
 	}{
 		{"no params means everything", nil, 2},
 		{"zero mask means everything", []byte{0x00}, 2},
-		{"excluding environment leaves base alone", []byte{permTelemEnvironment}, 2},
-		{"excluding location leaves base alone", []byte{permTelemLocation}, 2},
-		{"excluding base drops it", []byte{permTelemBase}, 0},
+		{"excluding environment leaves base alone", []byte{sensor.PermEnvironment}, 2},
+		{"excluding location leaves base alone", []byte{sensor.PermLocation}, 2},
+		{"excluding base still sends it", []byte{sensor.PermBase}, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			body, ok := newRepeater().buildReqResponse(
-				&store.RepeaterACLEntry{Permissions: permGuest}, reqTypeGetTelemetryData, tc.params)
+				&store.RepeaterACLEntry{Permissions: permGuest}, reqTypeGetTelemetryData, tc.params, sensor.MaxReplyBody(nil))
 			if !ok {
 				t.Fatal("telemetry request was not answered; the firmware answers a guest too")
 			}
@@ -900,29 +901,29 @@ func TestTelemetryHonoursTheRequestersInverseMask(t *testing.T) {
 	}
 }
 
-// A host with no battery omits the voltage; the firmware cannot express that and returns 0.
-func TestTelemetryOmitsBatteryWhenTheHostHasNone(t *testing.T) {
+// A host with no battery still sends one at 0 V, as every firmware node does.
+func TestTelemetryReportsZeroVoltsWhenTheHostHasNoBattery(t *testing.T) {
 	r := &Repeater{} // batteryMV left at 0, as on a Raspberry Pi
 	r.mcuTempC.Store(352)
 	r.haveMCUTemp.Store(true)
 
-	body, _ := r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil)
+	body, _ := r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil, sensor.MaxReplyBody(nil))
 	readings, err := meshcore.LPPDecode(body)
 	if err != nil {
 		t.Fatalf("LPPDecode: %v", err)
 	}
-	// The temperature still reports: the battery is omitted, not the channel.
-	if len(readings) != 1 || readings[0].Value != 35.2 {
-		t.Fatalf("got %+v, want only the 35.2 C temperature", readings)
+	// LPPReading.Value is an any, so the 0 has to be written as a float or it never compares equal.
+	if len(readings) != 2 || readings[0].Value != 0.0 || readings[1].Value != 35.2 {
+		t.Fatalf("got %+v, want 0 V and the 35.2 C temperature", readings)
 	}
 
 	// A board that does report a battery still publishes it.
 	r.batteryMV.Store(4168)
 	r.haveBattery.Store(true)
-	body, _ = r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil)
+	body, _ = r.buildReqResponse(&store.RepeaterACLEntry{Permissions: permAdmin}, reqTypeGetTelemetryData, nil, sensor.MaxReplyBody(nil))
 	readings, _ = meshcore.LPPDecode(body)
-	// LPP voltage has 0.01 V resolution, so 4168 mV comes back as 4.16.
-	if len(readings) != 2 || readings[0].Value != 4.16 {
+	// LPP voltage has 0.01 V resolution and the encoder rounds, so 4168 mV comes back as 4.17.
+	if len(readings) != 2 || readings[0].Value != 4.17 {
 		t.Errorf("got %+v, want the battery plus the temperature", readings)
 	}
 }

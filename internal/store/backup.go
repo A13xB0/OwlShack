@@ -43,9 +43,6 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 	return v, nil
 }
 
-// LatestSchemaVersion is the version this binary migrates to.
-func LatestSchemaVersion() int { return len(migrations) }
-
 // InspectBackup returns path's schema version, rejecting a file from a newer build since migrations never run backwards.
 func InspectBackup(ctx context.Context, path string) (int, error) {
 	db, err := openReadOnly(path)
@@ -68,6 +65,17 @@ func InspectBackup(ctx context.Context, path string) (int, error) {
 	if v > LatestSchemaVersion() {
 		return v, fmt.Errorf("backup is from a newer version (schema %d, this build understands %d) — upgrade first",
 			v, LatestSchemaVersion())
+	}
+	// Open would refuse it after the restore had already set the live database aside.
+	if err := db.QueryRowContext(ctx,
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").Scan(&name); err == nil {
+		file, err := draftApplied(ctx, db, v)
+		if err != nil {
+			return v, err
+		}
+		if file != "" {
+			return v, fmt.Errorf("backup ran an unreleased draft of %s, so this build cannot open it", file)
+		}
 	}
 	return v, nil
 }
@@ -193,6 +201,13 @@ func PruneBackup(ctx context.Context, path string, opts PruneOptions) error {
 		if _, err := db.ExecContext(ctx, s.sql); err != nil {
 			return fmt.Errorf("%s: %w", s.sql, err)
 		}
+	}
+
+	// The map keys on node kind and id, so no cascade reaches it and an orphan would restore onto the next node to take that id.
+	if _, err := db.ExecContext(ctx, `DELETE FROM telemetry_map
+		WHERE (node_kind = 'companion' AND node_id NOT IN (SELECT id FROM companions))
+		   OR (node_kind = 'repeater' AND NOT EXISTS (SELECT 1 FROM repeater))`); err != nil {
+		return fmt.Errorf("pruning telemetry_map: %w", err)
 	}
 
 	// DATETIME columns compare against a SQL timestamp; the metrics/neighbour tables store unix seconds.

@@ -1,6 +1,7 @@
 package repeater
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 
@@ -12,7 +13,9 @@ type PeerPathInfo struct {
 	Hops           int    `json:"hops"`
 	HasPath        bool   `json:"hasPath"`
 	DirectNeighbor bool   `json:"directNeighbor"`
-	PathHashSize   int    `json:"pathHashSize"`
+	// OutPathHashSize is the route's own size; BytesPerHop is the contact's setting, which a flood or 0-hop send carries.
+	OutPathHashSize int `json:"outPathHashSize"`
+	BytesPerHop     int `json:"bytesPerHop"`
 }
 
 func (rm *Client) GetPeerPath(pubkeyHex string) (*PeerPathInfo, error) {
@@ -31,19 +34,15 @@ func (rm *Client) GetPeerPath(pubkeyHex string) (*PeerPathInfo, error) {
 		return nil, fmt.Errorf("peer not found in peer table")
 	}
 
-	hashSize := int(peer.OutPathHashSize)
-	if hashSize == 0 {
-		hashSize = int(meshcore.PathHashSize)
-	}
-
-	info := &PeerPathInfo{PathHashSize: hashSize}
+	routeSize := int(max(peer.OutPathHashSize, 1))
+	info := &PeerPathInfo{OutPathHashSize: routeSize, BytesPerHop: int(rm.bytesPerHop(pubkeyBytes))}
 	if peer.OutPath != nil && len(peer.OutPath) == 0 {
 		info.DirectNeighbor = true
 		info.HasPath = true
 		info.Hops = 0
 	} else if len(peer.OutPath) > 0 {
 		info.HasPath = true
-		info.Hops = len(peer.OutPath) / hashSize
+		info.Hops = len(peer.OutPath) / routeSize
 		info.OutPath = hex.EncodeToString(peer.OutPath)
 	}
 	return info, nil
@@ -63,37 +62,46 @@ func (rm *Client) ResetPeerPath(pubkeyHex string) error {
 	if !rm.node.Peers().ResetOutPath(peerIdentity.PublicKey()) {
 		return fmt.Errorf("peer not found in peer table")
 	}
-	// The contact row has to be cleared too, or learnedRoute reads the old path straight back and
-	// the reset does nothing.
-	rm.persistOutPath(pubkeyBytes, nil, 0)
+	if err := rm.saveOutPath(pubkeyBytes, nil, 0); err != nil {
+		return err
+	}
 	rm.log.Debug("peer path reset", "peer", pubkeyHex[:12])
 	return nil
 }
 
-func (rm *Client) SetPeerPath(pubkeyHex, pathHex string, pathHashSize int) error {
+// SetPeerPath sets an operator's route, nil to flood and empty for a direct neighbour, with the bytes per hop everything sent uses.
+func (rm *Client) SetPeerPath(pubkeyHex string, path []byte, bytesPerHop uint8) error {
 	pubkeyBytes, err := hex.DecodeString(pubkeyHex)
 	if err != nil {
 		return fmt.Errorf("invalid pubkey hex: %w", err)
 	}
-
 	peerIdentity, err := meshcore.NewIdentityFromBytes(pubkeyBytes)
 	if err != nil {
 		return fmt.Errorf("invalid pubkey: %w", err)
 	}
-
-	pathBytes, err := hex.DecodeString(pathHex)
-	if err != nil {
-		return fmt.Errorf("invalid path hex: %w", err)
-	}
-
-	if pathHashSize <= 0 {
-		pathHashSize = int(meshcore.PathHashSize)
-	}
-
-	if !rm.node.Peers().SetOutPath(peerIdentity.PublicKey(), pathBytes, uint8(pathHashSize)) {
+	key := peerIdentity.PublicKey()
+	if rm.node.Peers().Lookup(key) == nil {
 		return fmt.Errorf("peer not found in peer table")
 	}
-	rm.persistOutPath(pubkeyBytes, pathBytes, uint8(pathHashSize))
-	rm.log.Debug("peer path set", "peer", pubkeyHex[:12], "path", pathHex)
+	// The row first and the table only once it is saved, so a failed save changes nothing live.
+	var saveErr error
+	rm.store.WriteSync(func() {
+		if saveErr = rm.store.Contacts.SetRoute(context.Background(), rm.companionID, pubkeyBytes, path, bytesPerHop); saveErr == nil {
+			rm.node.Peers().SetOutPath(key, path, bytesPerHop)
+		}
+	})
+	if saveErr != nil {
+		return saveErr
+	}
+	rm.log.Debug("peer path set", "peer", pubkeyHex[:12], "path", hex.EncodeToString(path), "flood", path == nil, "bytesPerHop", bytesPerHop)
 	return nil
+}
+
+// saveOutPath is persistOutPath for an operator's change, written before the request returns so it cannot be dropped.
+func (rm *Client) saveOutPath(pubkey []byte, path []byte, hashSize uint8) error {
+	var err error
+	rm.store.WriteSync(func() {
+		err = rm.store.Contacts.UpdateOutPath(context.Background(), rm.companionID, pubkey, path, hashSize)
+	})
+	return err
 }

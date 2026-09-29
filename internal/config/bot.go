@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+
+	"github.com/meshcore-go/OwlShack/internal/region"
 )
 
 type TriggerConfig struct {
@@ -35,6 +37,39 @@ type TriggerConfig struct {
 	Schedule string `json:"schedule,omitempty" yaml:"schedule,omitempty" toml:"schedule,omitempty"`
 
 	URL string `json:"url,omitempty" yaml:"url,omitempty" toml:"url,omitempty"` // Feed to poll, for rss and cap triggers
+
+	// Location keeps a cap trigger to alerts whose shapes reach it; nil takes alerts from anywhere.
+	Location *FeedLocation `json:"location,omitempty" yaml:"location,omitempty" toml:"location,omitempty"`
+	// Regions keeps a cap trigger to alerts over these internal/region ids; nil takes anywhere, and [] is refused.
+	Regions *[]string `json:"regions,omitempty" yaml:"regions,omitempty" toml:"regions,omitempty"`
+}
+
+// FeedLocation is a point an alert must reach within RadiusKm; pointers only so a field left out is refused, not read as 0.
+type FeedLocation struct {
+	Lat      *float64 `json:"lat" yaml:"lat" toml:"lat"`
+	Lon      *float64 `json:"lon" yaml:"lon" toml:"lon"`
+	RadiusKm *float64 `json:"radiusKm" yaml:"radiusKm" toml:"radiusKm"`
+}
+
+// Values is the location once validate has passed.
+func (l *FeedLocation) Values() (lat, lon, radiusKm float64) {
+	return *l.Lat, *l.Lon, *l.RadiusKm
+}
+
+// MaxLocationRadiusKm bounds the margin; past this a location filter is no filter at all.
+const MaxLocationRadiusKm = 500
+
+func (l *FeedLocation) validate() error {
+	if l.Lat == nil || l.Lon == nil || l.RadiusKm == nil {
+		return fmt.Errorf("location needs lat, lon and radiusKm")
+	}
+	if !(*l.Lat >= -90 && *l.Lat <= 90) || !(*l.Lon >= -180 && *l.Lon <= 180) {
+		return fmt.Errorf("location must be a latitude of -90 to 90 and a longitude of -180 to 180")
+	}
+	if !(*l.RadiusKm >= 0 && *l.RadiusKm <= MaxLocationRadiusKm) {
+		return fmt.Errorf("location radiusKm must be 0-%d", MaxLocationRadiusKm)
+	}
+	return nil
 }
 
 // MirrorIncomingPathHashSize is the pathHashSize that means "answer with whatever size came in",
@@ -63,15 +98,8 @@ func (t *TriggerConfig) Validate() error {
 	case "dm":
 		// No channel or contact is required: an empty contact list listens to every sender the DM policy already let through.
 	case "rss", "cap":
-		if t.URL == "" {
-			return fmt.Errorf("%s trigger requires a url", t.Type)
-		}
-		u, err := url.Parse(t.URL)
-		if err != nil {
-			return fmt.Errorf("invalid url %q: %w", t.URL, err)
-		}
-		if u.Scheme != "http" && u.Scheme != "https" {
-			return fmt.Errorf("url %q must be http or https", t.URL)
+		if err := t.validateFeedURL(); err != nil {
+			return err
 		}
 		// A feed trigger answers nobody, so with neither a channel nor a contact it can never
 		// say anything.
@@ -86,6 +114,10 @@ func (t *TriggerConfig) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unknown trigger type %q (supported: group, dm, cron, rss, cap)", t.Type)
+	}
+
+	if err := t.validateLocation(); err != nil {
+		return err
 	}
 
 	if t.FailoverPattern != "" || t.FailoverTimeout != 0 {
@@ -113,19 +145,8 @@ func (t *TriggerConfig) Validate() error {
 		return fmt.Errorf("invalid template: %w", err)
 	}
 
-	if t.Match != nil {
-		fields := matchFields[t.Type]
-		for _, entry := range *t.Match {
-			if fields != nil {
-				if err := validateFieldPattern(entry, fields); err != nil {
-					return err
-				}
-				continue
-			}
-			if _, err := regexp.Compile(entry); err != nil {
-				return fmt.Errorf("invalid match pattern %q: %w", entry, err)
-			}
-		}
+	if err := t.validateMatch(); err != nil {
+		return err
 	}
 
 	if t.Channels != nil {
@@ -156,6 +177,77 @@ func (t *TriggerConfig) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// ValidateFeedTest checks what trying a feed bot needs, by the same rules a save applies: the type, the url and the match patterns.
+func (t *TriggerConfig) ValidateFeedTest() error {
+	if t.Type != "rss" && t.Type != "cap" {
+		return fmt.Errorf("only rss and cap bots can be tried against a live feed, not %q", t.Type)
+	}
+	if err := t.validateFeedURL(); err != nil {
+		return err
+	}
+	if err := t.validateLocation(); err != nil {
+		return err
+	}
+	return t.validateMatch()
+}
+
+func (t *TriggerConfig) validateLocation() error {
+	if t.Location == nil && t.Regions == nil {
+		return nil
+	}
+	if t.Type != "cap" {
+		return fmt.Errorf("location and regions are only supported for cap triggers")
+	}
+	if t.Location != nil && t.Regions != nil {
+		return fmt.Errorf("a trigger takes a location or regions, not both")
+	}
+	if t.Location != nil {
+		return t.Location.validate()
+	}
+	if len(*t.Regions) == 0 {
+		return fmt.Errorf("regions must name at least one region")
+	}
+	for _, id := range *t.Regions {
+		if _, err := region.ByID(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *TriggerConfig) validateFeedURL() error {
+	if t.URL == "" {
+		return fmt.Errorf("%s trigger requires a url", t.Type)
+	}
+	u, err := url.Parse(t.URL)
+	if err != nil {
+		return fmt.Errorf("invalid url %q: %w", t.URL, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("url %q must be http or https", t.URL)
+	}
+	return nil
+}
+
+func (t *TriggerConfig) validateMatch() error {
+	if t.Match == nil {
+		return nil
+	}
+	fields := matchFields[t.Type]
+	for _, entry := range *t.Match {
+		if fields != nil {
+			if err := validateFieldPattern(entry, fields); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := regexp.Compile(entry); err != nil {
+			return fmt.Errorf("invalid match pattern %q: %w", entry, err)
+		}
+	}
 	return nil
 }
 

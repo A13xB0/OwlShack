@@ -20,6 +20,10 @@ type Companion struct {
 	DMPolicy string
 	// DMAllow is the "allowlist" policy's pubkeys, newline-encoded in the column.
 	DMAllow []string
+	// Telem* is who may read each telemetry class: "deny", "selected" or "contacts".
+	TelemBase string
+	TelemLoc  string
+	TelemEnv  string
 }
 
 type CompanionRepo struct{ db *sql.DB }
@@ -27,23 +31,35 @@ type CompanionRepo struct{ db *sql.DB }
 func scanCompanion(s interface{ Scan(...any) error }) (*Companion, error) {
 	var c Companion
 	var dmAllow string
-	if err := s.Scan(&c.ID, &c.Name, &c.PrivateKey, &c.PubKey, &c.Latitude, &c.Longitude, &c.AdvertInterval, &c.PathHashSize, &c.DMPolicy, &dmAllow); err != nil {
+	if err := s.Scan(&c.ID, &c.Name, &c.PrivateKey, &c.PubKey, &c.Latitude, &c.Longitude, &c.AdvertInterval, &c.PathHashSize, &c.DMPolicy, &dmAllow,
+		&c.TelemBase, &c.TelemLoc, &c.TelemEnv); err != nil {
 		return nil, err
 	}
 	c.DMAllow = decodeList(dmAllow)
 	return &c, nil
 }
 
-const companionCols = `id, name, private_key, pubkey, latitude, longitude, advert_interval, path_hash_size, dm_policy, dm_allow`
+const companionCols = `id, name, private_key, pubkey, latitude, longitude, advert_interval, path_hash_size, dm_policy, dm_allow,
+	telem_base, telem_loc, telem_env`
 
 // DMPolicyContacts is the pre-column behaviour and the value written for an unset policy.
 const DMPolicyContacts = "contacts"
+
+// TelemDeny is the firmware default and what an unset telemetry mode is written as.
+const TelemDeny = "deny"
 
 func dmPolicyOrDefault(p string) string {
 	if p == "" {
 		return DMPolicyContacts
 	}
 	return p
+}
+
+func telemModeOrDefault(m string) string {
+	if m == "" {
+		return TelemDeny
+	}
+	return m
 }
 
 func (r *CompanionRepo) List(ctx context.Context) ([]Companion, error) {
@@ -91,9 +107,11 @@ func (r *CompanionRepo) IDByName(ctx context.Context, name string) (int64, error
 // Create inserts a companion and sets c.ID to the new surrogate key.
 func (r *CompanionRepo) Create(ctx context.Context, c *Companion) error {
 	res, err := r.db.ExecContext(ctx, `
-		INSERT INTO companions (name, private_key, pubkey, latitude, longitude, advert_interval, path_hash_size, dm_policy, dm_allow)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.PrivateKey, c.PubKey, c.Latitude, c.Longitude, c.AdvertInterval, c.PathHashSize, dmPolicyOrDefault(c.DMPolicy), encodeList(c.DMAllow))
+		INSERT INTO companions (name, private_key, pubkey, latitude, longitude, advert_interval, path_hash_size, dm_policy, dm_allow,
+			telem_base, telem_loc, telem_env)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.PrivateKey, c.PubKey, c.Latitude, c.Longitude, c.AdvertInterval, c.PathHashSize, dmPolicyOrDefault(c.DMPolicy), encodeList(c.DMAllow),
+		telemModeOrDefault(c.TelemBase), telemModeOrDefault(c.TelemLoc), telemModeOrDefault(c.TelemEnv))
 	if err != nil {
 		return fmt.Errorf("inserting companion: %w", err)
 	}
@@ -106,9 +124,11 @@ func (r *CompanionRepo) Create(ctx context.Context, c *Companion) error {
 
 func (r *CompanionRepo) Update(ctx context.Context, c *Companion) error {
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE companions SET name=?, private_key=?, pubkey=?, latitude=?, longitude=?, advert_interval=?, path_hash_size=?, dm_policy=?, dm_allow=?
+		UPDATE companions SET name=?, private_key=?, pubkey=?, latitude=?, longitude=?, advert_interval=?, path_hash_size=?, dm_policy=?, dm_allow=?,
+			telem_base=?, telem_loc=?, telem_env=?
 		WHERE id=?`,
-		c.Name, c.PrivateKey, c.PubKey, c.Latitude, c.Longitude, c.AdvertInterval, c.PathHashSize, dmPolicyOrDefault(c.DMPolicy), encodeList(c.DMAllow), c.ID)
+		c.Name, c.PrivateKey, c.PubKey, c.Latitude, c.Longitude, c.AdvertInterval, c.PathHashSize, dmPolicyOrDefault(c.DMPolicy), encodeList(c.DMAllow),
+		telemModeOrDefault(c.TelemBase), telemModeOrDefault(c.TelemLoc), telemModeOrDefault(c.TelemEnv), c.ID)
 	if err != nil {
 		return fmt.Errorf("updating companion: %w", err)
 	}
@@ -116,11 +136,19 @@ func (r *CompanionRepo) Update(ctx context.Context, c *Companion) error {
 }
 
 func (r *CompanionRepo) Delete(ctx context.Context, id int64) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM companions WHERE id = ?`, id)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("deleting companion: %w", err)
 	}
-	return nil
+	defer tx.Rollback()
+	// Cleared here rather than by a cascade, because the map keys on node kind and id and a row may be the repeater's.
+	if err := deleteTelemetryMapForNode(ctx, tx, TelemetryNode{Kind: NodeKindCompanion, ID: id}); err != nil {
+		return fmt.Errorf("deleting the companion's telemetry map: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM companions WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("deleting companion: %w", err)
+	}
+	return tx.Commit()
 }
 
 // CompanionChannel is a companion-owned channel; an empty private_key means a public/hashtag-derived one.

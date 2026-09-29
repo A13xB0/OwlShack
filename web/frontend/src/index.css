@@ -107,16 +107,17 @@
   --input: oklch(0.92 0.005 240);
   --ring: oklch(0.42 0.16 165);
 
-  --success: oklch(0.6 0.16 155);
+  --success: oklch(0.52 0.16 155);
   --success-foreground: oklch(0.99 0 0);
-  --warning: oklch(0.7 0.17 70);
+  /* The lightest amber at this hue, inside sRGB, that passes 4.5:1 on the card, the page and its own tint. */
+  --warning: oklch(0.55 0.118 70);
   --warning-foreground: oklch(0.2 0 0);
   --info: oklch(0.55 0.15 230);
   --info-foreground: oklch(0.99 0 0);
 
   --signal: oklch(0.65 0.18 155);
   --signal-strong: oklch(0.7 0.2 155);
-  --signal-weak: oklch(0.7 0.17 70);
+  --signal-weak: oklch(0.55 0.118 70);
   --signal-dead: oklch(0.55 0.22 25);
 
   --chart-1: oklch(0.55 0.18 165);
@@ -355,6 +356,13 @@
 .leaflet-container {
   background: var(--muted);
   font-family: var(--font-sans);
+}
+/* A light-only basemap in dark mode: inverted with its hues kept, or simplified by #osm-dark in index.html. */
+.dark .tiles-darken {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+}
+.dark[data-map-dark="simplified"] .tiles-darken {
+  filter: url(#osm-dark);
 }
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {

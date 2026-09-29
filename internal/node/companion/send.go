@@ -14,9 +14,9 @@ import (
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
-// maxDMTextBytes is the firmware's MAX_TEXT_LEN (10 * CIPHER_BLOCK_SIZE), less the 2 bytes a
+// MaxDMTextBytes is the firmware's MAX_TEXT_LEN (10 * CIPHER_BLOCK_SIZE), less the 2 bytes a
 // retry past attempt 3 appends, so a message that sends can also be retried.
-const maxDMTextBytes = 10*16 - 2
+const MaxDMTextBytes = 10*16 - 2
 
 // uniqueTimestamp mirrors the firmware's getCurrentTimeUnique(): a remote node drops a second post sharing a timestamp as a retry.
 func (c *Companion) uniqueTimestamp() uint32 { return c.repeaters.UniqueTimestamp() }
@@ -81,9 +81,9 @@ func (c *Companion) sendGroupReply(ch *meshcore.ChannelEntry, text string, hashS
 	)
 }
 
-// SendContactMessage is the chat API's DM send: framing comes from the learned route alone, as it always has.
+// SendContactMessage is the chat API's DM send: a flood or 0-hop DM goes out at the contact's bytes per hop.
 func (c *Companion) SendContactMessage(pubkeyHex, text string) error {
-	return c.sendDM(pubkeyHex, text, 0, 5*time.Second)
+	return c.sendDM(pubkeyHex, text, c.bytesPerHopHex(pubkeyHex), 5*time.Second)
 }
 
 // sendDMReply is a DM trigger's answer: the trigger's pathHashSize frames it only when no route is stored, since a stored path already fixes its own hash width.
@@ -135,8 +135,8 @@ func (c *Companion) sendDM(pubkeyHex, text string, fallbackHashSize uint8, ackTi
 	}
 
 	// The UI counts characters; the wire counts bytes, and a retry past attempt 3 appends 2 more.
-	if len(text) > maxDMTextBytes {
-		return fmt.Errorf("message is %d bytes, over the %d-byte limit (multibyte characters cost more than one)", len(text), maxDMTextBytes)
+	if len(text) > MaxDMTextBytes {
+		return fmt.Errorf("message is %d bytes, over the %d-byte limit (multibyte characters cost more than one)", len(text), MaxDMTextBytes)
 	}
 
 	// SendTextMessage treats a nil path as a flood, so an unrouted contact still sends.

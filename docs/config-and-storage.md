@@ -30,6 +30,28 @@ sessions intact, no re-advert; log-level changes apply with zero restarts. A
 radio/connection change still restarts everything (modem reconnect);
 `listenAddr` needs a process restart.
 
+- **Local sensors are not config.** `sensors` (provider, kind, name, options
+  JSON, bindings JSON; the name unique ignoring case), `sensor_state` (one row per
+  sensor: what a part like the BME680 has learned, replaced in place) and
+  `telemetry_map` (per node: `node_kind`, `node_id`, channel, LPP type, sensor and
+  metric; unique on node, channel and type) live outside `config.Config` and
+  bypass `configMutate`. `node_kind` and the three `telem_*` columns are CHECKed
+  to their few values.
+  Sensor and map writes go through `internal/app/sensors.go` and
+  `telemetry_map.go`, which hold `sensorWrites` from their checks to the hub
+  reload so racing requests cannot each pass the checks the other breaks.
+  The `radio` provider reads the board's battery and MCU temperature from what
+  the liveness probe already cached (`liveRadio` in `internal/app/sensors.go`),
+  so it adds no link traffic; its sample time is the board's last answer, kept
+  across a reconnect like health's, and a 0 mV battery (the firmware's "not
+  supported") reads 0 V, as the firmware sends it. SPI has no board, so the
+  provider is unavailable there.
+  `companions.telem_base/loc/env` hold who may read each telemetry class
+  (`deny`, `selected`, `contacts`), written only by
+  `PUT /api/config/companions/{id}/telemetry`, so every other companion edit
+  carries them through. The map keys on node kind and id with no foreign key
+  (a row may be the repeater's), so deleting a companion or the repeater deletes
+  its rows, and a pruned backup drops rows whose node is gone.
 - **Config is stored relationally** (the config tables: `settings`,
   `mqtt_settings`, `mqtt_brokers`, `companions`, `companion_channels`,
   `triggers`, `trigger_channels` — all with surrogate INTEGER ids so name /
@@ -72,12 +94,26 @@ radio/connection change still restarts everything (modem reconnect);
   friends rather than for a person. It **always answers 200 while the process is
   alive**, including when the radio is not: a monitor that cannot reach OwlShack
   already fails the request, so the status code is not spent on a second
-  opinion. `problems` is a possibly-empty array of binary faults (a thing meant
-  to be connected that is not) and `status` is `ok` exactly when it is empty;
-  everything else is a fact to threshold externally, never a verdict. Three
+  opinion. `problems` is a possibly-empty array of binary faults in what the
+  node cannot work without, and `status` is `ok` exactly when it is empty. The
+  whole list: the modem not connected, or a companion or the repeater failing to
+  start (which closes a modem that was fine, so it is named as such); the board
+  not answering for `modem.AnswerDeadline()`; transmit failing (at least three
+  sends in a row, for two minutes, the shape a lost `TX_DONE` leaves); no node
+  running; and the database's disk under 32 MiB free. MQTT has its own verdict in `mqtt`: `status` is `ok`
+  when every enabled broker is connected, `degraded` with a `problems` entry per
+  one that is not, and `off` when none is enabled, because a broker being down
+  loses uploads to the map, not the node, and should not page whoever watches
+  the radio. Everything else is a fact to threshold externally, never a verdict. Three
   radio ages are kept apart on purpose: `lastReplySecs` is the liveness probe's
-  own signal (the board answering a query, which a quiet mesh does not move),
-  `lastRxSecs` is mesh traffic, and `lastTxSecs` is our own sends. Each is
+  own signal (the board answering a query, an error reply included, which a quiet
+  mesh does not move, carried across a reconnect since reconnecting never waits
+  for an answer; a board that has not answered yet counts from when the first
+  unanswered link connected, so one hung before its first answer is caught too;
+  KISS answers status queries, openHop its STATUS, and SPI has no board to ask),
+  `lastRxSecs` is mesh traffic, and `lastTxSecs` is our own sends (a frame
+  written to the modem, whatever the board then made of it; `txFailedInARow` and
+  `txFailingSecs` say whether sends are actually going out). Each is
   `null` rather than `0` when there is nothing to measure from, so "cannot say"
   is distinguishable from "just now". `database.writesDroppedLastSecs` is the
   database signal to threshold. The `WriteAsync` overflow is otherwise silent —
@@ -87,7 +123,12 @@ radio/connection change still restarts everything (modem reconnect);
   in `problems`, which would pin the endpoint to `degraded` for the life of the
   process after one transient overflow. `writeQueueLen` is a point sample of a
   queue that normally drains in microseconds, so it reads 0 unless the writer is
-  *sustainedly* behind and will not catch a brief spike. **It is written on the
+  *sustainedly* behind and will not catch a brief spike. `walBytes` is the
+  write-ahead log's size on disk: a checkpoint trims it back to 4 MiB, so a
+  value that keeps climbing means checkpoints are not completing, which nothing
+  else would show. `diskFreeBytes` is there because a full disk fails every
+  write inside the writer, which drops nothing and so shows nowhere else; it is
+  `null` where the platform cannot say. **It is written on the
   assumption it may be public**: the running nodes are not listed at all — a
   name or pubkey is on-air already, but published on the internet it ties a
   hostname to a mesh identity that public maps resolve to coordinates — there is
@@ -119,10 +160,23 @@ radio/connection change still restarts everything (modem reconnect);
   senders, read here as recipients. At least one of the two is required: with
   neither, the trigger can never say anything. The first poll after a start only
   records what is already published, so a restart never replays a backlog onto
-  the mesh, and one poll sends at most five items — a feed that republishes
-  itself would otherwise queue dozens of transmissions onto a duty-cycled
-  radio. A `cap` trigger fetches the alert document each entry links to; a 4xx
-  or unparseable document is recorded as seen rather than refetched every poll.
+  the mesh, and one poll sends at most five items, the newest, counted as they
+  are sent — a feed that republishes itself would otherwise queue dozens of
+  transmissions onto a duty-cycled radio. A `cap` trigger fetches the alert
+  document each entry links to; a 4xx or unparseable document is recorded as
+  seen rather than refetched every poll. It sends an alert once however many
+  entries post it (Meteoalarm posts one per area: 57 entries for 2 alerts in
+  Germany's feed), skipping an entry whose message it has already handled, until
+  a day past the alert's expiry. A message is named as CAP 1.2's `<references>`
+  names one, by sender, identifier and sent, so an Update or Cancel (a new
+  identifier) is sent even when it is served at the same link. Documents are
+  cached for one poll only, so 47 entries cost one fetch but an update at the
+  same link on a later poll is fetched fresh. A message is marked handled only
+  once sent, so a copy that fails the filters cannot hide one that passes. One
+  poll fetches at most 20 alert documents, each with its own 15 s timeout, and
+  leaves the rest for the next poll. An entry whose document was already in the
+  feed when the bot started, for a message sent before then, is backlog and is
+  not sent. The Test lists each alert once.
   Templates get flattened conveniences (`.Title`/`.Link` for rss,
   `.Severity`/`.Headline`/`.Areas` for cap) plus the parsed structs themselves:
   `.Item` (`*gofeed.Item`) on both, and `.Alert`/`.Info` (`*cap.Alert`) on cap.
@@ -132,7 +186,49 @@ radio/connection change still restarts everything (modem reconnect);
   regex alone cannot express — alternation already says OR inside one field.
   `matchFields` in `internal/config/feedfields.go` is the vocabulary and
   `TriggerConfig.Validate` rejects an unscoped or misspelt field rather than
-  compiling it as a bare regex that silently never matches.
+  compiling it as a bare regex that silently never matches. A field holding
+  several values (`area`, `category`, `geocode`) joins them one per line, so an
+  anchor needs `(?m)`. `geocode` is every area's `<valueName>=<value>`, for
+  publishers that name areas by code instead of drawing them: on the NWS feed 89%
+  of alerts (marine, coastal, wind) carry only zone codes, so
+  `geocode:(?m)^UGC=TX` is Texas, and Meteoalarm's German, Spanish and Italian
+  feeds carry only `EMMA_ID`/`WARNCELLID` codes. A cap entry's link typed
+  `application/cap+xml` is fetched in preference to its first link, which on
+  Meteoalarm is a web page.
+- **Where a `cap` trigger's alerts must be** is a point or a set of regions,
+  never both, checked before the patterns against the polygons and circles in
+  the rendered info block. A point is `triggers.location_lat`/`_lon`/`_radius_km`
+  (`location: {lat, lon, radiusKm}`): an alert passes when it covers the point or
+  comes within `radiusKm` (0-500). Regions are `triggers.location_regions`
+  (`regions: [id, ...]`, newline-encoded): an alert passes when its overlap with
+  a region is at least 10% of whichever is smaller, the alert or the region,
+  which keeps a warning drawn along a district line out of the neighbour it
+  spills a sliver into. `null` for both takes alerts from anywhere, and `[]` is
+  refused. An alert with no shape never passes either: a publisher that sends
+  none never will. The bot Test reports it as `placement` (`anywhere`, `inside`,
+  `outside`, `noShape`).
+- **Regions are Natural Earth's admin-1 boundaries** (public domain, every
+  country), each ring simplified to 1/200 of its width but never past about
+  1 km, so a city-state or an atoll keeps its shape, and embedded as
+  `internal/region/regions.bin.gz` (2.2 MB, delta-encoded microdegrees, each
+  region's exact area precomputed); `go generate ./internal/region`
+  rebuilds it from the pinned release. A region's id is Natural Earth's
+  `adm1_code` (`NZL-3398` is Auckland), since ISO 3166-2 codes repeat within it.
+  The generator refuses to drop an id the current file has, since a bot naming
+  it would stop loading. The data is decoded on first use (about 30 ms), and a
+  region's edges are indexed by latitude band the first time it is tested, so
+  checking an alert against Nunavut, the most detailed region, takes under 1 ms.
+  **At release**, compare the pinned tag (`source` in `internal/region/gen/main.go`)
+  with Natural Earth's latest release (`gh api
+  repos/nvkelso/natural-earth-vector/releases/latest --jq .tag_name`; v5.1.2 of
+  May 2022 was the latest when this was written). To move to a newer one, change
+  the tag, run `go generate ./internal/region`, and commit the new file with it.
+  If the generator stops because ids are gone, those regions were renumbered or
+  removed: a saved bot naming one would stop loading, so check whether any bot
+  uses them before accepting with `go run ./gen -allow-removed regions.bin.gz`.
+  The output is deterministic (sorted ids, fixed rounding, no gzip timestamp), so
+  rerunning the generator on an unchanged tag must leave `git status` clean; if it
+  does not, the committed file is stale.
 - **DM acceptance is `companions.dm_policy`** (`contacts` | `allowlist` |
   `anyone`, default `contacts`) with `companions.dm_allow` holding the
   allowlist's pubkeys newline-encoded, the same encoding `triggers.contacts`
@@ -285,6 +381,16 @@ without hand-copying `meshcore.db`. UI is `BackupWizard` (opened from
   readable SQLite file with a `settings` table and `user_version <=`
   `LatestSchemaVersion()` (migrations never run backwards); a rejected upload
   leaves nothing staged.
+- **An upgrade keeps a copy of the database first**: before migrating from
+  version N to M, the store writes `meshcore.db.pre-vN-to-vM` with `VACUUM
+  INTO` and syncs it, so going back to an older build is stopping OwlShack and
+  moving the copy into place. An upgrade that fails part way keeps its copy,
+  and the next start reuses it rather than copying the half-upgraded database;
+  older copies are deleted only once an upgrade finishes. If the copy cannot be
+  made (a full disk), the upgrade goes ahead without one and logs a warning, so
+  an updated node still starts. Builds from this one
+  on name the copy when they refuse a newer database (v1.4.x does not). Nothing
+  is copied for a fresh database.
 
 ## Node monitoring
 
@@ -302,6 +408,8 @@ A type-agnostic poller (`internal/monitor`) polls monitored contacts on a stagge
 
 ## REST endpoints (summary — see `internal/api/server.go` for the canonical list)
 
+Every JSON body is capped at 1 MiB (`readJSON`); backup uploads have their own, larger limit.
+
 ```
 GET  /api/peers
 DELETE /api/peers/{pubkey}
@@ -312,7 +420,7 @@ GET  /api/companions/{name}/contacts
 GET  /api/companions/{name}/contacts/{pubkey}                (single contact; 404 if absent)
 POST /api/companions/{name}/contacts                         { pubkey }   (also registers the peer with the running nodes)
 DELETE /api/companions/{name}/contacts/{pubkey}
-PATCH /api/companions/{name}/contacts/{pubkey}               { isRepeater?, repeaterPassword?, ... }
+PATCH /api/companions/{name}/contacts/{pubkey}               { isRepeater?, repeaterPassword?, telemPerms?, ... }   (merges: only named fields change; an unknown or null field, or a value the form does not offer, is a 400; 404 if absent)
 
 GET|POST|DELETE /api/companions/{name}/channels[/{channel}]
 
@@ -329,6 +437,7 @@ PATCH /api/companions/{name}/channels/{channel}               { name }
 
 GET  /api/companions/{name}/contacts/{pubkey}/path
 DELETE /api/companions/{name}/contacts/{pubkey}/path
+PUT  /api/companions/{name}/contacts/{pubkey}/path             same body as the repeaters PUT below
 
 GET  /api/companions/{name}/messages?channel=&limit=&afterId=
 POST /api/companions/{name}/messages                         { channel, text }
@@ -342,7 +451,8 @@ POST /api/companions/{name}/repeaters/{pubkey}/login         { password }
 GET  /api/companions/{name}/repeaters/{pubkey}/status
 POST /api/companions/{name}/repeaters/{pubkey}/cli           { command }
 GET|DELETE /api/companions/{name}/repeaters/{pubkey}/session
-GET|DELETE|PUT /api/companions/{name}/repeaters/{pubkey}/path
+GET|DELETE /api/companions/{name}/repeaters/{pubkey}/path       GET: { outPath, hops, hasPath, directNeighbor, pathHashSize (the route's), bytesPerHop }
+PUT  /api/companions/{name}/repeaters/{pubkey}/path            { route: flood|direct|path, path?, pathHashSize }
 
 POST /api/companions/{name}/rooms/{pubkey}/login             { password, syncSince? }
 GET|DELETE /api/companions/{name}/rooms/{pubkey}/session
@@ -360,18 +470,32 @@ GET  /api/config/mqtt/brokers
 POST /api/config/mqtt/brokers          PUT|DELETE /api/config/mqtt/brokers/{id}
 GET  /api/config/companions                                  (id, name, pubkey, privateKeySet, …)
 POST /api/config/companions            PUT|DELETE /api/config/companions/{id}
+PUT  /api/config/companions/{id}/telemetry                   { base, location, environment }   (each deny | selected | contacts)
 GET  /api/config/companions/{id}/channels
 GET  /api/health                                             (monitoring snapshot; see below)
 GET  /api/config/channels                                    (all channels; for trigger name resolution)
 POST /api/config/companions/{id}/channels    PUT|DELETE /api/config/channels/{id}
 GET  /api/config/triggers[?companionId=N]
 POST /api/config/triggers              PUT|DELETE /api/config/triggers/{id}
+POST /api/config/triggers/test/items   { companionId, type, url, match, template, location, regions }   (an unsaved rss/cap bot's newest feed items; sends nothing)
+POST /api/config/triggers/test/render  { ...same, itemId }   (the message for one item, whether the patterns pass it, where it falls, and what a channel keeps)
+GET  /api/regions/at?lat=&lon=         (the region under a point, with its outline; 404 at sea)
+GET  /api/regions/{id}                 (one region and its outline)
 
 GET  /api/mqtt/status                                        (live broker connection state; runtime, not config)
 GET  /api/radio/status                                       (link counters; packetsRecv/packetsSent/crcErrors/driverErrors/recvRecoveries are SPI-only, inboundDroppedOldest/rxMetaTimeouts/rxMetaMisattributed/hwErrors/txOutcomeLost KISS-only, each absent rather than 0 on the other transport)
 POST /api/radio/reset                                        (202; drops the modem and reconnects in the background)
 GET  /api/spi/boards                                         (the board registry; [] when the backend is not up yet)
 GET  /api/serial/ports                                       (host serial devices; `path` is the /dev/serial/by-id name where Linux has one, `device` the tty it resolves to, `stable` false when only the tty exists)
+
+GET  /api/sensors                                            (every sensor with its last readings; also the `sensors` WS topic)
+GET  /api/sensors/providers
+POST /api/sensors/discover                                   { provider? }   (candidates beside problems, such as a bus that would not open)
+GET  /api/sensors/kinds                                      (the parts catalogue)
+POST /api/sensors                      PUT|DELETE /api/sensors/{id}   (refused 422 when it would strand a published channel or a derived sensor; 404 for an id not configured; secret options never read back, kept on edit by keepSecrets)
+POST /api/sensors/test                                      { id, ...sensor }   (one try of an unsaved sensor of a testable kind: status, reply, each value; saves nothing)
+GET  /api/sensors/telemetry-map                              (every node's map, the LPP catalogue and defaults, the 145-byte budget)
+PUT  /api/sensors/telemetry-map                              { node, entries }   (entries required, each naming that node; [] clears the node's map)
 
 POST /api/backup                                             (options JSON -> .db file download)
 POST /api/backup/estimate                                    (same body; row counts, no file built)

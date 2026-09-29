@@ -42,15 +42,16 @@ type CompanionLookup func(name string) (MessageSender, DMSender, bool)
 type CompanionChannelMutator func(name string) (adder ChannelAdder, remover ChannelRemover, ok bool)
 
 type RepeaterOps struct {
-	Login        func(pubkeyHex, password string) (any, error)
-	RoomLogin    func(pubkeyHex, password string, syncSince uint32) (any, error)
-	StatusReq    func(pubkeyHex string) (any, error)
-	CLI          func(pubkeyHex, command string) (string, error)
-	Session      func(pubkeyHex string) any
-	Logout       func(pubkeyHex string)
-	PathGet      func(pubkeyHex string) (any, error)
-	PathReset    func(pubkeyHex string) error
-	PathSet      func(pubkeyHex, pathHex string, pathHashSize int) error
+	Login     func(pubkeyHex, password string) (any, error)
+	RoomLogin func(pubkeyHex, password string, syncSince uint32) (any, error)
+	StatusReq func(pubkeyHex string) (any, error)
+	CLI       func(pubkeyHex, command string) (string, error)
+	Session   func(pubkeyHex string) any
+	Logout    func(pubkeyHex string)
+	PathGet   func(pubkeyHex string) (any, error)
+	PathReset func(pubkeyHex string) error
+	// PathSet takes a nil path to flood and an empty one for a direct neighbour.
+	PathSet      func(pubkeyHex string, path []byte, pathHashSize uint8) error
 	NeighborsReq func(pubkeyHex string, count uint8, offset uint16) (any, error)
 	OwnerInfoReq func(pubkeyHex string) (any, error)
 	TelemetryReq func(pubkeyHex string) (any, error)
@@ -119,6 +120,16 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/radio/status", s.handleRadioStatus)
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 	s.mux.HandleFunc("POST /api/radio/reset", s.handleRadioReset)
+	s.mux.HandleFunc("GET /api/sensors", s.handleSensors)
+	s.mux.HandleFunc("GET /api/sensors/providers", s.handleSensorProviders)
+	s.mux.HandleFunc("POST /api/sensors/discover", s.handleSensorDiscover)
+	s.mux.HandleFunc("GET /api/sensors/kinds", s.handleSensorKinds)
+	s.mux.HandleFunc("POST /api/sensors", s.handleCreateSensor)
+	s.mux.HandleFunc("POST /api/sensors/test", s.handleTestSensor)
+	s.mux.HandleFunc("PUT /api/sensors/{id}", s.handleUpdateSensor)
+	s.mux.HandleFunc("DELETE /api/sensors/{id}", s.handleDeleteSensor)
+	s.mux.HandleFunc("GET /api/sensors/telemetry-map", s.handleTelemetryMap)
+	s.mux.HandleFunc("PUT /api/sensors/telemetry-map", s.handleSetTelemetryMap)
 
 	s.mux.HandleFunc("POST /api/backup", s.handleBackupExport)
 	s.mux.HandleFunc("POST /api/backup/estimate", s.handleBackupEstimate)
@@ -136,11 +147,16 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/config/mqtt/brokers/{id}", s.handleDeleteBroker)
 	s.mux.HandleFunc("POST /api/config/companions", s.handleSaveCompanion)
 	s.mux.HandleFunc("PUT /api/config/companions/{id}", s.handleSaveCompanion)
+	s.mux.HandleFunc("PUT /api/config/companions/{id}/telemetry", s.handleSetCompanionTelemetry)
 	s.mux.HandleFunc("DELETE /api/config/companions/{id}", s.handleDeleteCompanion)
 	s.mux.HandleFunc("POST /api/config/companions/{id}/channels", s.handleCreateChannel)
 	s.mux.HandleFunc("PUT /api/config/channels/{id}", s.handleSaveChannel)
 	s.mux.HandleFunc("DELETE /api/config/channels/{id}", s.handleDeleteChannel)
 	s.mux.HandleFunc("POST /api/config/triggers", s.handleSaveTrigger)
+	s.mux.HandleFunc("GET /api/regions/at", s.handleRegionAt)
+	s.mux.HandleFunc("GET /api/regions/{id}", s.handleGetRegion)
+	s.mux.HandleFunc("POST /api/config/triggers/test/items", s.handleTestTriggerItems)
+	s.mux.HandleFunc("POST /api/config/triggers/test/render", s.handleTestTriggerRender)
 	s.mux.HandleFunc("PUT /api/config/triggers/{id}", s.handleSaveTrigger)
 	s.mux.HandleFunc("DELETE /api/config/triggers/{id}", s.handleDeleteTrigger)
 	// Repeater node config is edited per-section (no whole-config bulk PUT).
@@ -172,6 +188,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/companions/{name}/channels/{channel}/key", s.handleGetChannelKey)
 	s.mux.HandleFunc("GET /api/companions/{name}/contacts/{pubkey}/path", s.handleGetContactPath)
 	s.mux.HandleFunc("DELETE /api/companions/{name}/contacts/{pubkey}/path", s.handleResetContactPath)
+	s.mux.HandleFunc("PUT /api/companions/{name}/contacts/{pubkey}/path", s.handleRepeaterPathSet)
 	s.mux.HandleFunc("POST /api/companions/{name}/trace", s.handleSendTrace)
 	s.mux.HandleFunc("POST /api/companions/{name}/advert", s.handleSendAdvert)
 	s.mux.HandleFunc("POST /api/companions/{name}/repeaters/{pubkey}/login", s.handleRepeaterLogin)
@@ -384,7 +401,10 @@ func (s *Server) serverError(w http.ResponseWriter, msg string, err error) {
 	writeError(w, http.StatusInternalServerError, msg)
 }
 
+// maxJSONBody is far past any real request: a bulk delete of 15,000 peers fits.
+const maxJSONBody = 1 << 20
+
 func readJSON(r *http.Request, v any) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(v)
+	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxJSONBody)).Decode(v)
 }

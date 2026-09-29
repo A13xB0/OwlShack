@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
@@ -290,6 +291,14 @@ func (c *Config) Validate() error {
 			}
 			seenRegion[rg.Name] = true
 		}
+	}
+
+	if c.MapProvider != nil && !slices.Contains(MapProviders, *c.MapProvider) {
+		return fmt.Errorf("mapProvider %q: must be one of %s", *c.MapProvider, strings.Join(MapProviders, ", "))
+	}
+
+	if c.MapDarkStyle != nil && !slices.Contains(MapDarkStyles, *c.MapDarkStyle) {
+		return fmt.Errorf("mapDarkStyle %q: must be one of %s", *c.MapDarkStyle, strings.Join(MapDarkStyles, ", "))
 	}
 
 	if c.DutyCycle != nil && (*c.DutyCycle <= 0 || *c.DutyCycle > 100) {

@@ -53,6 +53,29 @@ func TestConfig_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name:    "unknown map provider",
+			mutate:  func(c *Config) { c.MapProvider = strPtr("google") },
+			wantErr: true,
+		},
+		{
+			name:    "empty map provider",
+			mutate:  func(c *Config) { c.MapProvider = strPtr("") },
+			wantErr: true,
+		},
+		{
+			name:    "unknown map dark style",
+			mutate:  func(c *Config) { c.MapDarkStyle = strPtr("inverted") },
+			wantErr: true,
+		},
+		{
+			name:   "simplified map dark style",
+			mutate: func(c *Config) { c.MapDarkStyle = strPtr(MapDarkSimplified) },
+		},
+		{
+			name:   "carto map provider",
+			mutate: func(c *Config) { c.MapProvider = strPtr(MapProviderCarto) },
+		},
+		{
 			name: "duplicate companion names",
 			mutate: func(c *Config) {
 				c.Companions = append(c.Companions, CompanionConfig{Name: "alpha"})
@@ -1107,5 +1130,22 @@ func TestParseConnection_SPI(t *testing.T) {
 	scheme, addr, ok := ParseConnection("spi://SPI0.0")
 	if !ok || scheme != "spi" || addr != "SPI0.0" {
 		t.Errorf("ParseConnection(spi://SPI0.0) = (%q, %q, %v), want (spi, SPI0.0, true)", scheme, addr, ok)
+	}
+}
+
+func TestConfig_MapProviderOr(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		provider, key *string
+		want          string
+	}{
+		{nil, nil, MapProviderOSM},
+		{nil, strPtr(""), MapProviderOSM},
+		{nil, strPtr("k"), MapProviderCarto},
+		{strPtr(MapProviderOSM), strPtr("k"), MapProviderOSM},
+	} {
+		if got := (&Config{MapProvider: c.provider, MapTileKey: c.key}).MapProviderOr(); got != c.want {
+			t.Errorf("provider %v key %v: got %q, want %q", c.provider, c.key, got, c.want)
+		}
 	}
 }

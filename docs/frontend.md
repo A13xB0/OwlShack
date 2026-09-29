@@ -39,6 +39,8 @@ Aesthetic: **operator console / radio shack utility**. Phosphor-green primary on
 - `<PeerTypePill type />`
 - `<SignalStrength snr size="sm|md" showLabel />`
 - `<PeerAvatar name size="xs|sm|md|lg" />`
+- `<PathDialog companion pubkey name onChanged />`: the one route editor for every contact (repeater, room, sensor and chat pages, the contact page). Don't add another.
+- `<HopPicker peers hashSize hops onHopsChange />`: pick hops from the repeater list; the Trace page and `PathDialog` share it.
 - shadcn primitives at `@/components/ui/*`
 - Toasts: `import { toast } from "sonner"`
 
@@ -107,9 +109,19 @@ horizontally, and these conventions hold:
 
 ### Maps
 
-CARTO now requires an API key (`settings.map_tile_key`, set on the Radio/Settings
-page; `lib/leaflet.ts` appends `?key=`). Blank still serves keyless tiles until
-CARTO enforces it.
+`settings.map_provider` picks the tiles (`osm` default, `carto`), set on the Settings page;
+`PROVIDERS` in `lib/leaflet.ts` holds each one's URL and attribution, and adding one means a
+value there, in `config.MapProviders`, and in the Settings select. CARTO's key
+(`settings.map_tile_key`) goes on as `?key=`; blank still serves keyless tiles. OSM Standard has
+no dark style, so its layer carries `tiles-darken`, recoloured in dark mode as
+`settings.map_dark_style` says (`setTiles` copies it to `data-map-dark` on the root, so a change
+needs no tile reload): `original` inverts with the hues kept; `simplified` is the `#osm-dark` SVG
+colour matrix in `index.html`, fitted to OSM's palette so water goes navy below dark-grey land,
+which no invert can do. Every
+map calls `useThemeTiles`, which swaps the layer when its URL would change (theme, tile setting, or
+base layer), and keeps Leaflet's attribution control: every provider's terms require it. Only the
+Map page passes a base layer (`main`, Esri `satellite`, OpenTopoMap `topo`), remembered per browser;
+every other map is the main map.
 
 
 Leaflet popup / zoom-control / attribution / container backgrounds are themed in `index.css`. Default marker icons are bundler-incompatible; the rebind lives **once** in [`lib/leaflet.ts`](../web/frontend/src/lib/leaflet.ts), so any file that imports from there gets working pins — don't add another `L.Icon.Default.mergeOptions` block.

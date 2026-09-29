@@ -17,6 +17,7 @@ func TestRouteForPeer(t *testing.T) {
 		peer          *node.Peer
 		wantRouteType byte
 		wantPathLen   uint8
+		bytesPerHop   uint8 // the contact's setting; 0 reads as 1
 	}{
 		{
 			name:          "nil peer floods",
@@ -58,6 +59,21 @@ func TestRouteForPeer(t *testing.T) {
 			wantPathLen:   66,
 		},
 		{
+			// A flood carries the contact's size, as the far end floods its reply at the request's.
+			name:          "flood at 2 bytes per hop",
+			peer:          &node.Peer{OutPath: nil},
+			bytesPerHop:   2,
+			wantRouteType: meshcore.RouteTypeFlood,
+			wantPathLen:   0x40,
+		},
+		{
+			name:          "0-hop direct at 3 bytes per hop",
+			peer:          &node.Peer{OutPath: []byte{}},
+			bytesPerHop:   3,
+			wantRouteType: meshcore.RouteTypeDirect,
+			wantPathLen:   0x80,
+		},
+		{
 			// (4-1)<<6 | 2 = 194.
 			name:          "2-hop path, hash size 4",
 			peer:          &node.Peer{OutPath: []byte{1, 2, 3, 4, 5, 6, 7, 8}, OutPathHashSize: 4},
@@ -74,7 +90,7 @@ func TestRouteForPeer(t *testing.T) {
 			if tt.peer != nil {
 				path, hashSize = tt.peer.OutPath, tt.peer.OutPathHashSize
 			}
-			gotRouteType, gotPathLen := routeForPeer(path, hashSize)
+			gotRouteType, gotPathLen := routeForPeer(path, hashSize, tt.bytesPerHop)
 			if gotRouteType != tt.wantRouteType {
 				t.Errorf("routeForPeer(%+v) routeType = 0x%02x, want 0x%02x",
 					tt.peer, gotRouteType, tt.wantRouteType)

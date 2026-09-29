@@ -23,6 +23,8 @@ type settingsDTO struct {
 	CR             *int     `json:"cr"`
 	TX             *int     `json:"tx"`
 	ListenAddr     *string  `json:"listenAddr"`
+	MapProvider    string   `json:"mapProvider"`
+	MapDarkStyle   string   `json:"mapDarkStyle"`
 	MapTileKey     *string  `json:"mapTileKey"`    // sent to the browser by design: it rides on tile URLs
 	ModemTokenSet  bool     `json:"modemTokenSet"` // redacted
 	PathHashSize   *int     `json:"pathHashSize"`
@@ -72,6 +74,10 @@ type companionDTO struct {
 	PathHashSize   *int     `json:"pathHashSize"`
 	DMPolicy       string   `json:"dmPolicy"`
 	DMAllow        []string `json:"dmAllow"`
+	// Telemetry* is who may read each class: "deny", "selected" or "contacts".
+	TelemetryBase        string `json:"telemetryBase"`
+	TelemetryLocation    string `json:"telemetryLocation"`
+	TelemetryEnvironment string `json:"telemetryEnvironment"`
 }
 
 type channelDTO struct {
@@ -82,21 +88,23 @@ type channelDTO struct {
 }
 
 type triggerDTO struct {
-	ID                 int64    `json:"id"`
-	CompanionID        int64    `json:"companionId"`
-	Type               string   `json:"type"`
-	Template           string   `json:"template"`
-	CharLimitBehaviour *string  `json:"charLimitBehaviour"`
-	Match              []string `json:"match"`
-	Contacts           []string `json:"contacts"`
-	ChannelIDs         []int64  `json:"channelIds"`
-	FailoverPattern    string   `json:"failoverPattern"`
-	FailoverTimeout    int64    `json:"failoverTimeout"`
-	RetryTimeout       *int64   `json:"retryTimeout"`
-	MaxRetries         *int     `json:"maxRetries"`
-	PathHashSize       *int     `json:"pathHashSize"`
-	Schedule           *string  `json:"schedule"`
-	URL                string   `json:"url"`
+	ID                 int64            `json:"id"`
+	CompanionID        int64            `json:"companionId"`
+	Type               string           `json:"type"`
+	Template           string           `json:"template"`
+	CharLimitBehaviour *string          `json:"charLimitBehaviour"`
+	Match              []string         `json:"match"`
+	Contacts           []string         `json:"contacts"`
+	ChannelIDs         []int64          `json:"channelIds"`
+	FailoverPattern    string           `json:"failoverPattern"`
+	FailoverTimeout    int64            `json:"failoverTimeout"`
+	RetryTimeout       *int64           `json:"retryTimeout"`
+	MaxRetries         *int             `json:"maxRetries"`
+	PathHashSize       *int             `json:"pathHashSize"`
+	Schedule           *string          `json:"schedule"`
+	URL                string           `json:"url"`
+	Location           *TriggerLocation `json:"location"`
+	Regions            *[]string        `json:"regions"`
 }
 
 func brokerToDTO(b store.Broker) brokerDTO {
@@ -115,6 +123,7 @@ func companionToDTO(c store.Companion) companionDTO {
 		Latitude: c.Latitude, Longitude: c.Longitude, AdvertInterval: c.AdvertInterval,
 		PathHashSize: c.PathHashSize,
 		DMPolicy:     c.DMPolicy, DMAllow: c.DMAllow,
+		TelemetryBase: c.TelemBase, TelemetryLocation: c.TelemLoc, TelemetryEnvironment: c.TelemEnv,
 	}
 }
 
@@ -129,7 +138,15 @@ func triggerToDTO(t store.Trigger) triggerDTO {
 		ChannelIDs: t.ChannelIDs, RetryTimeout: t.RetryTimeout, MaxRetries: t.MaxRetries,
 		PathHashSize: t.PathHashSize, Schedule: t.Schedule, URL: t.URL,
 		FailoverPattern: t.FailoverPattern, FailoverTimeout: t.FailoverTimeout,
+		Location: locationToDTO(t.Location), Regions: t.Regions,
 	}
+}
+
+func locationToDTO(l *store.TriggerLocation) *TriggerLocation {
+	if l == nil {
+		return nil
+	}
+	return &TriggerLocation{Lat: &l.Lat, Lon: &l.Lon, RadiusKm: &l.RadiusKm}
 }
 
 // --- handlers ---
@@ -144,7 +161,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		LogLevel: st.LogLevel, ConnectionType: st.ConnectionType, Connection: st.Connection,
 		BaudRate: st.BaudRate, SPIBoard: st.SPIBoard,
 		Freq: st.Freq, BW: st.BW, SF: st.SF, CR: st.CR, TX: st.TX,
-		ListenAddr: st.ListenAddr, MapTileKey: st.MapTileKey, PathHashSize: st.PathHashSize,
+		ListenAddr: st.ListenAddr, MapProvider: st.MapProvider, MapDarkStyle: st.MapDarkStyle, MapTileKey: st.MapTileKey, PathHashSize: st.PathHashSize,
 		ModemTokenSet: st.ModemToken != nil && *st.ModemToken != "",
 		DutyCycle:     st.DutyCyclePct, SetupComplete: st.SetupComplete,
 	})
@@ -323,6 +340,28 @@ func (s *Server) handleSaveCompanion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]int64{"id": id})
 }
 
+func (s *Server) handleSetCompanionTelemetry(w http.ResponseWriter, r *http.Request) {
+	b, ok := s.configBackend(w)
+	if !ok {
+		return
+	}
+	id, ok := pathID(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in CompanionTelemetryInput
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := b.SetCompanionTelemetry(r.Context(), id, in); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleDeleteCompanion(w http.ResponseWriter, r *http.Request) {
 	b, ok := s.configBackend(w)
 	if !ok {
@@ -424,6 +463,42 @@ func (s *Server) handleSaveTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"id": id})
+}
+
+func (s *Server) handleTestTriggerItems(w http.ResponseWriter, r *http.Request) {
+	b, ok := s.configBackend(w)
+	if !ok {
+		return
+	}
+	var in TriggerTestInput
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	items, err := b.TestTriggerItems(r.Context(), in)
+	if err != nil {
+		s.writeSensorError(w, "trying the bot failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) handleTestTriggerRender(w http.ResponseWriter, r *http.Request) {
+	b, ok := s.configBackend(w)
+	if !ok {
+		return
+	}
+	var in TriggerTestInput
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	res, err := b.TestTriggerRender(r.Context(), in)
+	if err != nil {
+		s.writeSensorError(w, "trying the bot failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (s *Server) handleDeleteTrigger(w http.ResponseWriter, r *http.Request) {

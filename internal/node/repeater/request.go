@@ -9,6 +9,7 @@ import (
 	meshcore "github.com/meshcore-go/meshcore-go"
 
 	"github.com/meshcore-go/OwlShack/internal/buildinfo"
+	"github.com/meshcore-go/OwlShack/internal/sensor"
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
@@ -20,7 +21,7 @@ const (
 	reqTypeGetNeighbours    = 0x06
 	reqTypeGetOwnerInfo     = 0x07
 
-	telemChannelSelf = 1   // firmware TELEM_CHANNEL_SELF
+	telemChannelSelf = sensor.ChannelSelf
 	maxPacketPayload = 184 // firmware MAX_PACKET_PAYLOAD (sizeof reply_data)
 	// Matches the firmware's results_buffer so a neighbours reply still fits one packet.
 	neighboursMaxBody = 130
@@ -51,7 +52,7 @@ func (r *Repeater) handleReq(pkt *meshcore.Packet) {
 	reqType := plain[4]
 	params := plain[5:]
 
-	body, ok := r.buildReqResponse(client, reqType, params)
+	body, ok := r.buildReqResponse(client, reqType, params, sensor.MaxReplyBody(pkt))
 	if !ok {
 		return
 	}
@@ -72,16 +73,8 @@ func (r *Repeater) handleReq(pkt *meshcore.Packet) {
 	}
 }
 
-// Telemetry permission classes from SensorManager.h; a requester masks classes out, not in.
-const (
-	permTelemBase        uint8 = 0x01 // the node itself: battery, MCU temperature
-	permTelemLocation    uint8 = 0x02 // position
-	permTelemEnvironment uint8 = 0x04 // everything else
-	permTelemAll         uint8 = 0xFF
-)
-
-// buildReqResponse builds everything after the reflected timestamp tag; false answers nothing.
-func (r *Repeater) buildReqResponse(client *store.RepeaterACLEntry, reqType byte, params []byte) ([]byte, bool) {
+// buildReqResponse builds everything after the reflected tag; false answers nothing, and only telemetry can exceed maxBody.
+func (r *Repeater) buildReqResponse(client *store.RepeaterACLEntry, reqType byte, params []byte, maxBody int) ([]byte, bool) {
 	switch reqType {
 	case reqTypeGetStatus:
 		return r.statusBody(), true
@@ -101,27 +94,41 @@ func (r *Repeater) buildReqResponse(client *store.RepeaterACLEntry, reqType byte
 		}
 		return r.accessListBody(), true
 	case reqTypeGetTelemetryData:
-		// Not ACL-gated: handleRequest answers any client, and payload[0] is an INVERSE mask (perm_mask = ~payload[0]).
-		perms := permTelemAll
+		// payload[0] is an INVERSE mask; handleRequest sends base whatever it says, and a guest nothing more.
+		perms := sensor.PermAll
 		if len(params) >= 1 {
 			perms = ^params[0]
 		}
-		// Base telemetry on the self channel (ch1): battery voltage then MCU
-		// temperature, both from the radio board; the firmware's isnan check omits an unmeasurable one.
-		enc := meshcore.NewLPPEncoder()
-		if perms&permTelemBase != 0 {
-			// Diverges from the firmware, whose getBattMilliVolts cannot express "no battery" and returns 0.
-			if r.haveBattery.Load() {
-				enc.AddVoltage(telemChannelSelf, float64(r.batteryMV.Load())/1000)
-			}
-			if r.haveMCUTemp.Load() {
-				enc.AddTemperature(telemChannelSelf, float64(r.mcuTempC.Load())/10)
-			}
+		if client.Permissions&permRoleMask == permGuest {
+			perms = 0
 		}
-		return enc.Bytes(), true
+		perms |= sensor.PermBase
+		var entries []sensor.ChannelEntry
+		var statuses []sensor.Status
+		if r.telemetry != nil {
+			entries, statuses = r.telemetry()
+		}
+		body, dropped := sensor.BuildReply(perms, r.selfReadings(), entries, statuses, maxBody)
+		if dropped {
+			r.log.Error("telemetry map too long for one packet, sending the node's own readings only", "max", maxBody)
+		}
+		return body, true
 	default:
 		return nil, false
 	}
+}
+
+// selfReadings is what the radio board says about itself; one with no cell, or gone quiet, leaves the battery at 0 rather than a stale reading.
+func (r *Repeater) selfReadings() sensor.SelfReadings {
+	var out sensor.SelfReadings
+	if r.haveBattery.Load() {
+		out.BatteryVolts = float64(r.batteryMV.Load()) / 1000
+	}
+	if r.haveMCUTemp.Load() {
+		c := float64(r.mcuTempC.Load()) / 10
+		out.TempC = &c
+	}
+	return out
 }
 
 // statusBody builds the full 56-byte RepeaterStats blob (firmware layout, little-endian); untracked counters stay zero.

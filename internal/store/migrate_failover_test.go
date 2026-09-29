@@ -12,21 +12,12 @@ func TestStore_UpgradeFailoverAndOpenHop(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
 			path := filepath.Join(t.TempDir(), "upgrade.db")
-			db, err := openWritableDB(path)
-			if err != nil {
-				t.Fatal(err)
-			}
+			db := dbAt(t, path, 14)
 			defer db.Close()
-			for _, migration := range migrations[:14] {
-				if err := migration(ctx, db); err != nil {
-					t.Fatal(err)
-				}
-			}
 			if _, err := db.ExecContext(ctx, `
 				INSERT INTO settings (id, connection) VALUES (1, 'tcp://radio:5000');
 				INSERT INTO companions (id, name) VALUES (1, 'backup');
 				INSERT INTO triggers (id, companion_id, type, template) VALUES (1, 1, 'group', 'reply');
-				PRAGMA user_version = 14;
 			`); err != nil {
 				t.Fatal(err)
 			}
@@ -55,8 +46,8 @@ func TestStore_UpgradeFailoverAndOpenHop(t *testing.T) {
 					t.Fatal(err)
 				}
 				// Bump alongside TestStore_MigrateUserVersion whenever a migration is appended.
-				if version != 16 {
-					t.Fatalf("schema version = %d, want 16", version)
+				if version != 20 {
+					t.Fatalf("schema version = %d, want 20", version)
 				}
 				settings, err := st.Settings.Get(ctx)
 				if err != nil {

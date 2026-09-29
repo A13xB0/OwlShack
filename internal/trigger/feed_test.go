@@ -278,3 +278,21 @@ func TestFeedPoller_ForgetsLongAbsentItems(t *testing.T) {
 		t.Fatalf("seen set still holds %d ids after the items left the feed, want 0", n)
 	}
 }
+
+// The cap counts what is sent: newer items the patterns skip do not use up the sends older matches need.
+func TestRSSTrigger_CapCountsSends(t *testing.T) {
+	t.Parallel()
+	fs := newFeedServer(t)
+	match := []string{"title:^match"}
+	tr, fired := newTestRSS(t, config.TriggerConfig{URL: fs.feedURL(), Match: &match})
+	tr.poll(context.Background())
+	fs.publish("match one", "match two", "skip 1", "skip 2", "skip 3", "skip 4", "skip 5", "skip 6")
+	tr.poll(context.Background())
+	var titles []string
+	for _, ev := range *fired {
+		titles = append(titles, ev.Data["Title"].(string))
+	}
+	if strings.Join(titles, ",") != "match one,match two" {
+		t.Errorf("sent %v, want both matches, oldest first", titles)
+	}
+}

@@ -1,4 +1,6 @@
 // Client for internal/api/routes_config_rest.go: secrets read back as `*Set` booleans, and on write omit = keep, "" = clear.
+import { apiErrorMessage } from "@/lib/apiError";
+import type { MapDarkStyle, MapProvider } from "@/lib/leaflet";
 
 // --- read shapes (GET DTOs) ---
 
@@ -14,6 +16,8 @@ export interface Settings {
   cr: number | null;
   tx: number | null;
   listenAddr: string | null;
+  mapProvider: MapProvider;
+  mapDarkStyle: MapDarkStyle;
   mapTileKey: string | null;
   // The openHop modem token is a secret: reads report only whether one is stored.
   modemTokenSet: boolean;
@@ -114,6 +118,18 @@ export interface ConfigCompanion {
   pathHashSize: number | null; // null = inherit the global default
   dmPolicy: string; // contacts | allowlist | anyone
   dmAllow: string[] | null;
+  // Who may read each class of telemetry: deny | selected | contacts.
+  telemetryBase: TelemetryMode;
+  telemetryLocation: TelemetryMode;
+  telemetryEnvironment: TelemetryMode;
+}
+
+export type TelemetryMode = "deny" | "selected" | "contacts";
+
+export interface CompanionTelemetryInput {
+  base: TelemetryMode;
+  location: TelemetryMode;
+  environment: TelemetryMode;
 }
 
 export interface ConfigChannel {
@@ -139,6 +155,16 @@ export interface Trigger {
   pathHashSize: number | null;
   schedule: string | null;
   url: string;
+  location: TriggerLocation | null;
+  // region ids from /api/regions; null takes alerts from anywhere.
+  regions: string[] | null;
+}
+
+// The point a cap bot's alerts must cover, or come within radiusKm of; null takes alerts from anywhere.
+export interface TriggerLocation {
+  lat: number;
+  lon: number;
+  radiusKm: number;
 }
 
 // The single repeater NODE (the relay we run), not a remote one being administered.
@@ -229,6 +255,8 @@ export interface SettingsInput {
   cr?: number | null;
   tx?: number | null;
   listenAddr?: string | null;
+  mapProvider?: MapProvider; // omit = keep
+  mapDarkStyle?: MapDarkStyle; // omit = keep
   mapTileKey?: string | null; // omit = keep, "" = clear
   modemToken?: string; // omit = keep the stored token
   pathHashSize?: number | null;
@@ -319,6 +347,43 @@ export interface RepeaterAdminInput {
   guestPassword?: string;
 }
 
+// An unsaved rss or cap bot to try against its live feed; itemId picks the item a render uses.
+export interface TriggerTestInput {
+  companionId: number;
+  type: string;
+  url: string;
+  match: string[];
+  template: string;
+  location: TriggerLocation | null;
+  regions: string[] | null;
+  itemId?: string;
+}
+
+export interface TriggerTestItem {
+  id: string;
+  title: string;
+  link: string;
+  // null when the feed gives the item no time.
+  published: string | null;
+}
+
+export interface TriggerTestRender {
+  message: string;
+  // the template's own failure, normal while it is being typed.
+  renderError: string;
+  // false when the match patterns would skip the item, so nothing would be sent.
+  matched: boolean;
+  // where the alert falls against the location; only anywhere and inside send.
+  placement: "anywhere" | "inside" | "outside" | "noShape";
+  captures: Record<string, string>;
+  bytes: number;
+  // what a channel receives: 160 bytes including "name: ", the rest cut.
+  channelText: string;
+  channelLimit: number;
+  // the longest DM that sends; a longer one fails rather than being cut.
+  dmLimit: number;
+}
+
 export interface TriggerInput {
   companionId: number;
   type: string;
@@ -334,6 +399,16 @@ export interface TriggerInput {
   pathHashSize?: number | null;
   schedule?: string | null;
   url?: string | null;
+  location: TriggerLocation | null;
+  regions: string[] | null;
+}
+
+// A first-level region (state, province, NZ region) with its outline: [lon, lat] rings, read even-odd.
+export interface Region {
+  id: string;
+  name: string;
+  country: string;
+  rings: [number, number][][];
 }
 
 // --- request helper ---
@@ -390,6 +465,10 @@ export const configApi = {
       : requestId("/api/config/companions", "POST", input),
   deleteCompanion: (id: number) => request(`/api/config/companions/${id}`, "DELETE"),
 
+  // Its own endpoint: sending these with the rest of a companion would let any other form reset them.
+  setCompanionTelemetry: (id: number, input: CompanionTelemetryInput) =>
+    request(`/api/config/companions/${id}/telemetry`, "PUT", input),
+
   createChannel: (companionId: number, input: ChannelInput) =>
     requestId(`/api/config/companions/${companionId}/channels`, "POST", input),
   saveChannel: (id: number, input: ChannelInput) =>
@@ -401,6 +480,19 @@ export const configApi = {
       ? requestId(`/api/config/triggers/${id}`, "PUT", input)
       : requestId("/api/config/triggers", "POST", input),
   deleteTrigger: (id: number) => request(`/api/config/triggers/${id}`, "DELETE"),
+  testTriggerItems: (input: TriggerTestInput) =>
+    requestJSON<TriggerTestItem[]>("/api/config/triggers/test/items", "POST", input),
+  testTriggerRender: (input: TriggerTestInput) =>
+    requestJSON<TriggerTestRender>("/api/config/triggers/test/render", "POST", input),
+  // null is the sea; any other failure throws.
+  regionAt: async (lat: number, lon: number): Promise<Region | null> => {
+    const res = await fetch(`/api/regions/at?lat=${lat}&lon=${lon}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(await apiErrorMessage(res));
+    return (await res.json()) as Region;
+  },
+  region: (id: string) =>
+    requestJSON<Region>(`/api/regions/${encodeURIComponent(id)}`, "GET"),
 
   createRepeater: (input: RepeaterCreateInput) =>
     request("/api/config/repeater", "POST", input),

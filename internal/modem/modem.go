@@ -55,6 +55,10 @@ const (
 // A var so tests can shrink it; a probe goroutine must be stopped before a test restores it.
 var probeInterval = 30 * time.Second
 
+// AnswerDeadline is how long a board may go without answering before it counts as stuck: past the
+// probe's own give-up, so a dropped reply or two never flags.
+func AnswerDeadline() time.Duration { return (probeMisses + 1) * probeInterval }
+
 // StartDeadWatcher starts the watchers that ask for a reconnect: the transport's own read-loop-exited
 // signal, and a liveness probe for the case that signal cannot see. Both are skipped for a modem or
 // stats provider that does not support them, and both stop on Close.
@@ -99,16 +103,15 @@ func (m *State) probeLiveness(lr interface{ LastReply() time.Time }, reconnectCh
 		}
 
 		before := lr.LastReply()
-		if before.IsZero() {
-			// Never answered once. This firmware may not implement the queries at all, and a probe
-			// that cannot tell "unsupported" from "dead" would reconnect a working radio forever.
-			continue
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 		m.Stats.Stats(ctx)
 		cancel()
 
+		if before.IsZero() {
+			// Asked, but never reconnected: this firmware may not implement the queries, and a probe
+			// that cannot tell "unsupported" from "dead" would reconnect a working radio forever.
+			continue
+		}
 		if lr.LastReply().After(before) {
 			misses = 0
 			continue

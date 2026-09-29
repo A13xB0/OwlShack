@@ -7,6 +7,7 @@ import (
 
 	meshcore "github.com/meshcore-go/meshcore-go"
 
+	"github.com/meshcore-go/OwlShack/internal/meshpath"
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
@@ -73,7 +74,7 @@ func (r *Repeater) handleAdvert(pkt *meshcore.Packet) {
 		Feat1:           appData.Feat1,
 		Feat2:           appData.Feat2,
 		OutPath:         pkt.Path,
-		OutPathHashSize: pkt.PathHashSize(),
+		OutPathHashSize: meshpath.AdvertHashSize(pkt),
 		LastAdvertTS:    adv.Timestamp,
 		LastSeen:        time.Now(),
 	}

@@ -1,0 +1,3 @@
+# Migration checksums are over the exact bytes, so a checkout must not rewrite line endings.
+internal/store/migrations/*.sql text eol=lf
+internal/store/migrations.sum text eol=lf

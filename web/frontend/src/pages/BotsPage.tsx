@@ -5,6 +5,7 @@ import {
   ExternalLink,
   HelpCircle,
   Loader2,
+  MapPin,
   Pencil,
   Plus,
   Save,
@@ -23,6 +24,9 @@ import {
   TextField,
 } from "@/components/ConfigFields";
 import { StringListField } from "@/components/StringListField";
+import { BotTestPanel } from "@/components/BotTestPanel";
+import { PositionPicker, round6 } from "@/components/PositionPicker";
+import { RegionPicker } from "@/components/RegionPicker";
 import { PeerListField, type PickablePeer } from "@/components/PeerPicker";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +48,7 @@ import {
   type ConfigChannel,
   type ConfigCompanion,
   type Trigger,
+  type TriggerLocation,
 } from "@/lib/configApi";
 
 const TYPE_OPTS = [
@@ -56,6 +61,32 @@ const TYPE_OPTS = [
 
 // rss and cap both poll a feed on a schedule; only what they do with an item differs.
 const isFeedType = (t: string) => t === "rss" || t === "cap";
+
+type Where = "anywhere" | "near" | "regions";
+const WHERE_OPTS = [
+  { value: "anywhere", label: "Anywhere" },
+  { value: "near", label: "Near a point" },
+  { value: "regions", label: "In regions" },
+];
+
+// Must match config.MaxLocationRadiusKm.
+const MAX_LOCATION_RADIUS_KM = 500;
+
+// A number typed into a field, or null while it is blank or not one.
+function parseNumber(s: string): number | null {
+  const n = Number(s.trim());
+  return s.trim() !== "" && Number.isFinite(n) ? n : null;
+}
+
+function parseLocation(lat: string, lon: string, km: string): TriggerLocation | null {
+  const la = parseNumber(lat);
+  const lo = parseNumber(lon);
+  const r = parseNumber(km);
+  if (la === null || lo === null || r === null) return null;
+  if (la < -90 || la > 90 || lo < -180 || lo > 180) return null;
+  if (r < 0 || r > MAX_LOCATION_RADIUS_KM) return null;
+  return { lat: la, lon: lo, radiusKm: r };
+}
 
 // Mirroring answers with the size the message arrived on, so it only means anything for a trigger
 // that is answering one. Cron and the feeds start the conversation themselves.
@@ -121,6 +152,14 @@ const CAP_REGEX_EXAMPLES: RegexExample[] = [
     pattern: "area:(?i)(?P<area>Northland|Auckland)",
     desc: "capture the region as {{.Match.area}}",
   },
+  {
+    pattern: "geocode:(?m)^UGC=TX",
+    desc: "US NWS alerts for Texas, by the zone codes the NWS names areas with",
+  },
+  {
+    pattern: "geocode:(?m)^EMMA_ID=DE028$",
+    desc: "one Meteoalarm area, for a feed that sends codes instead of map shapes",
+  },
 ];
 
 const regexExamplesFor = (t: string): RegexExample[] =>
@@ -150,6 +189,7 @@ const CAP_MATCH_FIELDS = [
   "msgtype",
   "status",
   "area",
+  "geocode",
   "sender",
   "category",
 ];
@@ -461,6 +501,13 @@ function BotEditor({
   const [pollEvery, setPollEvery] = useState(initialPoll.every);
   const [pollUnit, setPollUnit] = useState(initialPoll.unit);
   const [url, setUrl] = useState(trigger?.url ?? "");
+  const [where, setWhere] = useState<Where>(
+    trigger?.location ? "near" : trigger?.regions ? "regions" : "anywhere",
+  );
+  const [regionIds, setRegionIds] = useState<string[]>(trigger?.regions ?? []);
+  const [nearLat, setNearLat] = useState(trigger?.location ? String(trigger.location.lat) : "");
+  const [nearLon, setNearLon] = useState(trigger?.location ? String(trigger.location.lon) : "");
+  const [nearKm, setNearKm] = useState(trigger?.location ? String(trigger.location.radiusKm) : "0");
   const [maxRetries, setMaxRetries] = useState(
     trigger?.maxRetries != null ? String(trigger.maxRetries) : "3",
   );
@@ -482,6 +529,19 @@ function BotEditor({
       ? `this companion sends ${own} byte${own > 1 ? "s" : ""}`
       : "this companion inherits the size from Settings";
   }, [pathHashSize, companions, companionId]);
+
+  const near = useMemo(
+    () => (type === "cap" && where === "near" ? parseLocation(nearLat, nearLon, nearKm) : null),
+    [type, where, nearLat, nearLon, nearKm],
+  );
+  const nearInvalid = type === "cap" && where === "near" && near === null;
+  const regions = type === "cap" && where === "regions" ? regionIds : null;
+  const regionsMissing = regions !== null && regions.length === 0;
+  const companion = companions.find((c) => c.id === companionId);
+  const companionPosition =
+    companion?.latitude != null && companion?.longitude != null
+      ? { lat: companion.latitude, lon: companion.longitude }
+      : null;
 
   // A trigger can only target channels its companion already has.
   const companionChannels = useMemo(
@@ -535,6 +595,8 @@ function BotEditor({
               ? schedule
               : null,
           url: isFeedType(type) ? url.trim() : null,
+          location: near,
+          regions,
           failoverPattern: type === "group" && failover ? failoverPattern.trim() : "",
           failoverTimeout: type === "group" && failover ? Number(failoverTimeout) : 0,
           maxRetries: parseInt(maxRetries, 10) || 3,
@@ -566,7 +628,9 @@ function BotEditor({
       (isFeedType(type) && contacts.length > 0)) &&
     (type !== "cron" || schedule.trim() !== "") &&
     (!isFeedType(type) || /^[1-9]\d*$/.test(pollEvery.trim())) &&
-    (!isFeedType(type) || /^https?:\/\/\S+$/.test(url.trim()));
+    (!isFeedType(type) || /^https?:\/\/\S+$/.test(url.trim())) &&
+    !nearInvalid &&
+    !regionsMissing;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -577,7 +641,7 @@ function BotEditor({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <SelectField
               label="Companion"
@@ -722,6 +786,89 @@ function BotEditor({
             />
           )}
 
+          {type === "cap" && (
+            <div className="space-y-3">
+              <SelectField
+                label="Alerts from"
+                value={where}
+                options={WHERE_OPTS}
+                onChange={(v) => setWhere(v as Where)}
+                hint={
+                  where === "anywhere"
+                    ? undefined
+                    : "Alerts that carry no map shape never match, so this only works with a feed that sends polygons or circles."
+                }
+              />
+              {where === "regions" && (
+                <RegionPicker
+                  ids={regionIds}
+                  onChange={setRegionIds}
+                  suggest={
+                    companionPosition && companion
+                      ? { label: companion.name, ...companionPosition }
+                      : null
+                  }
+                />
+              )}
+              {where === "near" && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <TextField
+                      label="Latitude"
+                      type="number"
+                      value={nearLat}
+                      onChange={setNearLat}
+                      placeholder="-41.2865"
+                    />
+                    <TextField
+                      label="Longitude"
+                      type="number"
+                      value={nearLon}
+                      onChange={setNearLon}
+                      placeholder="174.7762"
+                    />
+                    <TextField
+                      label="Margin (km)"
+                      type="number"
+                      value={nearKm}
+                      onChange={setNearKm}
+                      hint={`0 means the point must be inside; up to ${MAX_LOCATION_RADIUS_KM}`}
+                    />
+                  </div>
+                  <PositionPicker
+                    lat={parseFloat(nearLat)}
+                    lon={parseFloat(nearLon)}
+                    radiusKm={near?.radiusKm}
+                    onPick={(la, lo) => {
+                      setNearLat(round6(la));
+                      setNearLon(round6(lo));
+                    }}
+                  />
+                  {companionPosition && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setNearLat(String(companionPosition.lat));
+                        setNearLon(String(companionPosition.lon));
+                      }}
+                      className="h-auto min-h-8 whitespace-normal text-left rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
+                    >
+                      <MapPin className="size-3.5" />
+                      use {companion?.name}'s position
+                    </Button>
+                  )}
+                  {nearInvalid && (nearLat.trim() !== "" || nearLon.trim() !== "") && (
+                    <p className="font-mono text-[11px] text-destructive">
+                      Enter a latitude of -90 to 90, a longitude of -180 to 180 and a margin of 0 to{" "}
+                      {MAX_LOCATION_RADIUS_KM} km.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {type === "group" && (
             <div className="space-y-3">
               <SwitchRow
@@ -774,6 +921,28 @@ function BotEditor({
               className="resize-none rounded-none border-border font-mono text-sm bg-background"
             />
           </Field>
+
+          {isFeedType(type) && (
+            <BotTestPanel
+              companionId={companionId}
+              senderName={companions.find((c) => c.id === companionId)?.name ?? ""}
+              type={type}
+              url={url}
+              match={match}
+              template={template}
+              location={near}
+              regions={regions}
+              disabledReason={
+                !/^https?:\/\/\S+$/.test(url.trim())
+                  ? "Enter the feed's http or https address above to test it."
+                  : nearInvalid
+                    ? "Finish the location above to test it."
+                    : regionsMissing
+                      ? "Pick at least one region above to test it."
+                      : null
+              }
+            />
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             <TextField

@@ -7,7 +7,8 @@ type MessageHandler = (topic: string, data: unknown) => void;
 // Wait for any inbound message after an app-level ping before declaring the socket half-open.
 const PROBE_TIMEOUT_MS = 5000;
 
-export function useWebSocket(topics: string[], onMessage?: MessageHandler) {
+// notify: false for a socket that only watches the connection, so a reconnect doesn't refresh every view twice.
+export function useWebSocket(topics: string[], onMessage?: MessageHandler, notify = true) {
   const [connected, setConnected] = useState(false);
   // Cleared by the first open OR the first close, so an unreachable server still reaches "offline".
   const [pending, setPending] = useState(true);
@@ -51,7 +52,7 @@ export function useWebSocket(topics: string[], onMessage?: MessageHandler) {
           ws.send(JSON.stringify({ action: "subscribe", topic }));
         }
         // Nothing replays what the stream missed while it was down.
-        if (everOpened) notifyResume();
+        if (everOpened && notify) notifyResume();
         everOpened = true;
       };
 

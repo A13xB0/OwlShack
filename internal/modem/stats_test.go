@@ -1,8 +1,10 @@
 package modem
 
 import (
+	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/meshcore-go/meshcore-go/hardware"
 )
@@ -55,5 +57,35 @@ func TestKissLinkStats_FirmwareCountersAbsentUntilPolled(t *testing.T) {
 	// KISS measures this one and SPI does not; the reverse of the fields above.
 	if ls.HwDecodeErrors == nil {
 		t.Error("HwDecodeErrors = nil on KISS, where a SETHARDWARE frame can fail to decode")
+	}
+}
+
+type frameFeed struct {
+	handler func(*hardware.KissFrame)
+	dead    chan struct{}
+}
+
+func (f *frameFeed) Connect(context.Context) error               { return nil }
+func (f *frameFeed) Close() error                                { return nil }
+func (f *frameFeed) Send([]byte) error                           { return nil }
+func (f *frameFeed) SetFrameHandler(h func(*hardware.KissFrame)) { f.handler = h }
+func (f *frameFeed) SetErrorHandler(func(error))                 {}
+func (f *frameFeed) Dead() <-chan struct{}                       { return f.dead }
+
+// Firmware without a query still answers it, with HW_ERR_UNKNOWN_CMD; ignoring that reply read a live board as one that never answered.
+func TestKissStatsProvider_AnErrorReplyIsAnAnswer(t *testing.T) {
+	feed := &frameFeed{dead: make(chan struct{})}
+	km := hardware.NewKissModem(feed)
+	if err := km.Connect(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer km.Close()
+	p := NewKissStatsProvider(km, RadioInfo{})
+
+	feed.handler(&hardware.KissFrame{Command: hardware.KISS_CMD_SETHARDWARE, Data: []byte{hardware.HW_RESP_ERROR, hardware.HW_ERR_UNKNOWN_CMD}})
+	for deadline := time.Now().Add(2 * time.Second); p.LastReply().IsZero(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("an HW_RESP_ERROR reply did not count as the board answering")
+		}
 	}
 }

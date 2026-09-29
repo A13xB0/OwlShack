@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BackLink } from "@/components/BackLink";
 import { PeerAvatar } from "@/components/PeerAvatar";
+import { PathDialog } from "@/components/PathDialog";
 import { PositionPicker, round6 } from "@/components/PositionPicker";
 import { PeerTypePill } from "@/components/StatusIndicator";
 import { TelemetryPanel } from "@/components/TelemetryPanel";
@@ -41,8 +42,9 @@ interface Contact {
   lon: number;
   feat1?: number;
   feat2?: number;
-  outPath?: string;
+  outPath: string | null; // null = unknown (flood), "" = direct
   outPathHashSize?: number;
+  pathHashSize: number; // bytes per hop for everything sent to this contact
   lastSeen?: string;
   addedAt: string;
   metadata?: MonitorMetadata;
@@ -59,6 +61,7 @@ export function ContactDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pathOpen, setPathOpen] = useState(false);
 
   useEffect(() => {
     if (!companion || !contactPubkey) return;
@@ -86,6 +89,14 @@ export function ContactDetailPage() {
     };
   }, [companion, contactPubkey, apiBase]);
 
+  // After a route change, refetch in place: the full load swaps the page for a skeleton and drops fetched telemetry.
+  const refreshContact = useCallback(() => {
+    fetch(apiBase)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c: Contact | null) => c && setContact(c))
+      .catch(() => {});
+  }, [apiBase]);
+
   const copyKey = useCallback(() => {
     navigator.clipboard.writeText(contactPubkey).then(() => {
       setCopied(true);
@@ -97,12 +108,15 @@ export function ContactDetailPage() {
   const displayName = contact?.name || "unknown peer";
   // Routing comes from the contact's own stored path, which is per companion.
   const route = useMemo(
-    () => advertPathInfo(contact?.outPath, contact?.outPathHashSize),
+    () => advertPathInfo(contact?.outPath ?? undefined, contact?.outPathHashSize),
     [contact?.outPath, contact?.outPathHashSize],
   );
-  const routeLabel = !contact?.outPath
-    ? "Flood"
-    : `${route.hops} hop${route.hops === 1 ? "" : "s"}`;
+  const routeLabel =
+    contact?.outPath == null
+      ? "Flood"
+      : route.hops === 0
+        ? "Direct"
+        : `${route.hops} hop${route.hops === 1 ? "" : "s"}`;
 
   const contactType = contact?.type?.toUpperCase();
   const isRepeater = contactType === "REPEATER";
@@ -238,7 +252,21 @@ export function ContactDetailPage() {
           />
 
           <section className="panel overflow-hidden">
-            <PanelHeader eyebrow="Routing" title="Path" />
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div className="space-y-0.5">
+                <span className="label-overline block">Routing</span>
+                <h2 className="font-mono text-sm uppercase tracking-widest">Path</h2>
+              </div>
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setPathOpen(true)}
+                aria-label="Edit path"
+                className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-primary"
+              >
+                <Pencil className="size-3" /> edit
+              </Button>
+            </div>
             <div className="divide-y divide-border">
               <InfoRow label="Route">
                 <span className="font-mono text-xs uppercase tracking-[0.08em]">
@@ -252,11 +280,21 @@ export function ContactDetailPage() {
                   </code>
                 </InfoRow>
               )}
-              <InfoRow label="Path hash size">
-                <span className="tabular-nums">{route.hashSize}-byte</span>
+              <InfoRow label="Bytes per hop">
+                <span className="font-mono text-xs uppercase tracking-[0.08em] tabular-nums">
+                  {contact.pathHashSize} byte{contact.pathHashSize === 1 ? "" : "s"}
+                </span>
               </InfoRow>
             </div>
           </section>
+          <PathDialog
+            open={pathOpen}
+            onOpenChange={setPathOpen}
+            companion={companion}
+            pubkey={contactPubkey}
+            name={displayName}
+            onChanged={refreshContact}
+          />
 
           <section className="panel p-4">
             <TelemetryPanel

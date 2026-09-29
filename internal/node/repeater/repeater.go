@@ -17,6 +17,7 @@ import (
 
 	"github.com/meshcore-go/OwlShack/internal/api"
 	"github.com/meshcore-go/OwlShack/internal/config"
+	"github.com/meshcore-go/OwlShack/internal/sensor"
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
@@ -64,8 +65,10 @@ type Repeater struct {
 	haveBattery     atomic.Bool
 	haveDeviceStats atomic.Bool
 	pollStats       func(ctx context.Context) DeviceStats
-	mcuTempC        atomic.Int32 // tenths of a degree C
-	haveMCUTemp     atomic.Bool
+	// telemetry is the operator's channel map and the readings behind it; nil publishes no sensors.
+	telemetry   func() ([]sensor.ChannelEntry, []sensor.Status)
+	mcuTempC    atomic.Int32 // tenths of a degree C
+	haveMCUTemp atomic.Bool
 
 	// reconfigure persists + validates + reloads a config change; nil disables config writes, and it restarts this node so it must stay off the dispatch path.
 	reconfigure func(mutate func(*config.RepeaterConfig)) error
@@ -136,6 +139,8 @@ type Hooks struct {
 	Reconfigure func(mutate func(*config.RepeaterConfig)) error
 	// PollStats reads the shared modem's device stats; nil leaves those fields 0.
 	PollStats func(ctx context.Context) DeviceStats
+	// Telemetry is the operator's channel map and the readings behind it; nil publishes no sensors.
+	Telemetry func() ([]sensor.ChannelEntry, []sensor.Status)
 }
 
 func NewRepeater(cfg config.RepeaterConfig, mux *node.RadioMux, st *store.Store, hub *api.Hub, hooks Hooks) (*Repeater, error) {
@@ -160,6 +165,7 @@ func NewRepeater(cfg config.RepeaterConfig, mux *node.RadioMux, st *store.Store,
 		hub:         hub,
 		reconfigure: hooks.Reconfigure,
 		pollStats:   hooks.PollStats,
+		telemetry:   hooks.Telemetry,
 	}
 	r.neighbors.m = make(map[[32]byte]*neighbor)
 	r.routes.m = make(map[[32]byte]clientRoute)
