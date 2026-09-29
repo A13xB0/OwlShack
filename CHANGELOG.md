@@ -3,6 +3,14 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
+## Unreleased
+
+### Fixed
+
+- **A repeater's type badge no longer sits under its Copy button.** On a phone, a long name pushed
+  the badge across the button. The badge now wraps below the name, and a name too long for the
+  line is cut short, with the full name on hover.
+
 ## v1.5.0-rc.1 - 2026-09-29
 
 Baseline `v1.4.2`. Sensors on the Pi, sent over the mesh; bytes per hop and one Path window for

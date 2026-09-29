@@ -521,11 +521,14 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
       <section className="panel p-4 flex items-center gap-4">
         <PeerAvatar name={peerName} size="lg" />
         <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-base font-semibold uppercase tracking-[0.06em]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span
+              className="min-w-0 max-w-full truncate font-mono text-base font-semibold uppercase tracking-[0.06em]"
+              title={peerName}
+            >
               {peerName}
             </span>
-            <span className="font-mono text-[10px] uppercase tracking-widest px-1.5 py-0.5 border border-border text-muted-foreground">
+            <span className="shrink-0 font-mono text-[10px] uppercase tracking-widest px-1.5 py-0.5 border border-border text-muted-foreground">
               {peerType}
             </span>
           </div>
