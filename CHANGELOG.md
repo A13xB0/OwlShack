@@ -3,9 +3,16 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
-## Unreleased
+## v1.5.0-rc.1 - 2026-09-29
 
-Schema `user_version` 20: adds the sensor tables, who may read each companion's telemetry, where a
+Baseline `v1.4.2`. Sensors on the Pi, sent over the mesh; bytes per hop and one Path window for
+every contact; CAP bots that keep to one place; satellite and topo maps; and a clearer health
+check. It also fixes logging in to repeaters and rooms with an imported private key.
+
+Not yet tried: a firmware client reading our sensors over the mesh, and the new health checks on
+a Pi.
+
+Schema `user_version` 16 to 20: adds the sensor tables, who may read each companion's telemetry, where a
 CAP bot's alerts must be, which map tiles to use, and each contact's bytes per hop.
 
 ### Added
