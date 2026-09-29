@@ -113,6 +113,8 @@ func NewCompanion(cfg config.CompanionConfig, mux *node.RadioMux, st *store.Stor
 	n := node.New(id, radio, opts...)
 
 	companion := &Companion{
+		// RX handlers are live before Start sets the real one, and a DM in between must not query with a nil context.
+		runCtx:      context.Background(),
 		cfg:         cfg,
 		node:        n,
 		radio:       &radio,
@@ -123,8 +125,8 @@ func NewCompanion(cfg config.CompanionConfig, mux *node.RadioMux, st *store.Stor
 		hub:         hub,
 		echoTracker: echoTracker,
 		stats:       stats,
-		repeaters:   repeater.NewClient(n, st, cfg.ID, log, stats),
 	}
+	companion.repeaters = repeater.NewClient(n, st, cfg.ID, log, stats, companion.pathHashSize)
 
 	// The companion's channels are the only ones this node listens on; triggers reference them by name and register none of their own.
 	if cfg.Channels != nil {

@@ -81,9 +81,9 @@ func (c *Companion) sendGroupReply(ch *meshcore.ChannelEntry, text string, hashS
 	)
 }
 
-// SendContactMessage is the chat API's DM send: framing comes from the learned route alone, as it always has.
+// SendContactMessage is the chat API's DM send: a flood or 0-hop DM goes out at the contact's bytes per hop.
 func (c *Companion) SendContactMessage(pubkeyHex, text string) error {
-	return c.sendDM(pubkeyHex, text, 0, 5*time.Second)
+	return c.sendDM(pubkeyHex, text, c.bytesPerHopHex(pubkeyHex), 5*time.Second)
 }
 
 // sendDMReply is a DM trigger's answer: the trigger's pathHashSize frames it only when no route is stored, since a stored path already fixes its own hash width.

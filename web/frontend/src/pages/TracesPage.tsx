@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
   CircleDashed,
   GitCompare,
-  GripVertical,
   Link2,
   Pencil,
-  Plus,
-  Radio,
   Send,
   Square,
-  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,11 +35,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { InlineConfirm } from "@/components/InlineConfirm";
+import { HopPicker, ModeToggle, type HopPeer } from "@/components/HopPicker";
 import { SignalTestStats } from "@/components/SignalTestStats";
 import { PageHeader } from "@/components/PageHeader";
 import { ConnectionPill } from "@/components/StatusIndicator";
 import { SignalStrength } from "@/components/SignalStrength";
-import { truncateMid, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   signalTestApi,
@@ -99,39 +94,11 @@ interface TraceResult {
 
 type HashSize = 1 | 2 | 4;
 type BuilderMode = "select" | "manual";
-type PeerSort = "name" | "recent" | "signal" | "distance";
-
-// "Alphabetical" is wider than the phone-sized trigger and clips, hence a short form.
-const SORT_LABEL: Record<PeerSort, string> = {
-  name: "Alphabetical",
-  recent: "Last seen",
-  signal: "Signal",
-  distance: "Distance",
-};
-const SORT_LABEL_SHORT: Record<PeerSort, string> = {
-  name: "Name",
-  recent: "Recent",
-  signal: "Signal",
-  distance: "Dist",
-};
 
 // Silence window: every progressive echo resets it; elapsing with no progress is a timeout.
 const TRACE_TIMEOUT_MS = 5000;
 
 const HEX_RE = /^[0-9a-f]+$/i;
-
-// Great-circle distance in km between two lat/lon pairs (both in degrees).
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
 
 // A resolved hop reads as a plain name until it is a guess, when it carries the count of other
 // repeaters the hash could equally have named.
@@ -163,11 +130,9 @@ export function TracesPage() {
   const [companionName, setCompanionName] = useState<string>("");
   const [hashSize, setHashSize] = useState<HashSize>(1);
   const [mode, setMode] = useState<BuilderMode>("select");
-  const [selectedPath, setSelectedPath] = useState<Peer[]>([]);
+  const [selectedPath, setSelectedPath] = useState<HopPeer[]>([]);
   const [mirrorReturn, setMirrorReturn] = useState(false);
   const [manualHex, setManualHex] = useState<string>("");
-  const [filter, setFilter] = useState<string>("");
-  const [sort, setSort] = useState<PeerSort>("name");
 
   const [activeTag, setActiveTag] = useState<number | null>(null);
   const [waitStartedAt, setWaitStartedAt] = useState<number | null>(null);
@@ -380,46 +345,6 @@ export function TracesPage() {
       : null;
   }, [companions, companionName]);
 
-  const filteredPeers = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    // Selected repeaters stay listed so one can be added to the path twice (b8, e6, b8).
-    const matched = f
-      ? peers.filter(
-          (p) =>
-            p.name.toLowerCase().includes(f) ||
-            p.pubkey.toLowerCase().includes(f),
-        )
-      : peers;
-    return matched.slice().sort((a, b) => {
-      if (sort === "distance" && companionCoords) {
-        // Nearest first; peers with no advertised location sink to the bottom.
-        const distFor = (p: Peer) =>
-          p.lat === 0 && p.lon === 0
-            ? Infinity
-            : haversineKm(
-                companionCoords.lat,
-                companionCoords.lon,
-                p.lat / 1e6,
-                p.lon / 1e6,
-              );
-        return distFor(a) - distFor(b);
-      }
-      if (sort === "signal") {
-        // Strongest first; repeaters with no recent signal sink to the bottom.
-        return (b.snr ?? -Infinity) - (a.snr ?? -Infinity);
-      }
-      if (sort === "recent") {
-        // RFC3339 strings sort chronologically; most-recent first.
-        return (b.lastSeen || "").localeCompare(a.lastSeen || "");
-      }
-      // Alphabetical; unnamed repeaters sink to the bottom, pubkey as a tiebreaker.
-      const an = a.name.trim().toLowerCase();
-      const bn = b.name.trim().toLowerCase();
-      if (!an !== !bn) return an ? -1 : 1;
-      return an.localeCompare(bn) || a.pubkey.localeCompare(b.pubkey);
-    });
-  }, [peers, filter, sort, companionCoords]);
-
   // Hop names for the timeline. Keyed by hash to the resolved repeater, or absent when no repeater
   // matches — the timeline then shows "unknown" over the raw hash, which is the honest reading.
   const peerByHash = useMemo(() => {
@@ -476,59 +401,6 @@ export function TracesPage() {
   const onChangeHashSize = (v: string) => {
     setHashSize(Number(v) as HashSize);
   };
-
-  const addPeer = (peer: Peer) => {
-    setSelectedPath((prev) => [...prev, peer]);
-  };
-
-  const removeAt = (idx: number) => {
-    setSelectedPath((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const moveAt = (idx: number, dir: -1 | 1) => {
-    setSelectedPath((prev) => {
-      const next = [...prev];
-      const j = idx + dir;
-      if (j < 0 || j >= next.length) return prev;
-      [next[idx], next[j]] = [next[j], next[idx]];
-      return next;
-    });
-  };
-
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
-
-  const dragOverToIndex = (toIdx: number) => {
-    if (draggingIndex === null || draggingIndex === toIdx) return;
-    setSelectedPath((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(draggingIndex, 1);
-      next.splice(toIdx, 0, moved);
-      return next;
-    });
-    setDraggingIndex(toIdx);
-  };
-
-  const clearDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDraggingIndex(null);
-  };
-
-  const DropZone = ({ toIdx }: { toIdx: number }) => (
-    <li
-      aria-hidden
-      onDragOver={(e) => {
-        e.preventDefault();
-        dragOverToIndex(toIdx);
-      }}
-      onDrop={clearDrag}
-      className={cn(
-        "transition-[width]",
-        draggingIndex !== null ? "w-10" : "w-0",
-      )}
-    />
-  );
-
-  const clearPath = () => setSelectedPath([]);
 
   const sendTrace = async () => {
     if (!companionName) {
@@ -801,212 +673,29 @@ export function TracesPage() {
                   </label>
                 </div>
 
-                {mode === "select" ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="label-overline">Selected route</span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-                          {pathHopCount} hops · {pathByteLen}B
-                        </span>
-                        {selectedPath.length > 0 && (
-                          <Button
-                            variant="ghost"
-                            size="xs"
-                            onClick={clearPath}
-                            className="font-mono uppercase tracking-[0.08em]"
-                          >
-                            <Trash2 className="size-3" /> clear
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    {selectedPath.length === 0 ? (
-                      <div className="border border-dashed border-border/60 bg-muted/20 px-4 py-6 text-center">
-                        <CircleDashed className="size-5 mx-auto mb-2 text-muted-foreground/40" />
-                        <p className="text-sm text-muted-foreground/60">
-                          No hops selected · pick repeaters below
-                        </p>
-                      </div>
-                    ) : (
-                      <ol className="flex flex-wrap items-stretch gap-2">
-                        <DropZone toIdx={0} />
-                        {selectedPath.map((peer, idx) => (
-                          <li
-                            key={`${peer.pubkey}-${idx}`}
-                            draggable
-                            onDragStart={() => setDraggingIndex(idx)}
-                            onDragEnd={() => setDraggingIndex(null)}
-                            onDragOver={(e) => {
-                              e.preventDefault();
-                              dragOverToIndex(idx);
-                            }}
-                            onDrop={clearDrag}
-                            className={cn(
-                              "inline-flex items-center gap-1.5 border border-border bg-muted/40 px-2 py-1 font-mono text-xs hover:border-primary/40 transition-colors cursor-grab active:cursor-grabbing",
-                              draggingIndex === idx && "opacity-40",
-                            )}
-                          >
-                            <GripVertical className="size-3 text-muted-foreground/40" />
-                            <span className="text-muted-foreground/60 tabular-nums">
-                              {idx + 1}
-                            </span>
-                            <span className="text-foreground">
-                              {peer.name || (
-                                <span className="italic text-muted-foreground">
-                                  unknown
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-muted-foreground/60">
-                              {peer.pubkey.slice(0, hashSize * 2)}
-                            </span>
-                            <span className="ml-1 inline-flex items-center gap-0.5">
-                              <button
-                                type="button"
-                                onClick={() => moveAt(idx, -1)}
-                                disabled={idx === 0}
-                                className="inline-flex items-center justify-center size-4 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                                aria-label="move up"
-                              >
-                                <ArrowUp className="size-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => moveAt(idx, 1)}
-                                disabled={idx === selectedPath.length - 1}
-                                className="inline-flex items-center justify-center size-4 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                                aria-label="move down"
-                              >
-                                <ArrowDown className="size-3" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => removeAt(idx)}
-                                className="inline-flex items-center justify-center size-4 hover:text-destructive"
-                                aria-label="remove"
-                              >
-                                <X className="size-3" />
-                              </button>
-                            </span>
-                          </li>
-                        ))}
-                        <DropZone toIdx={selectedPath.length - 1} />
-                        {mirrorPeers.map((peer, i) => (
-                          <li
-                            key={`mirror-${peer.pubkey}-${i}`}
-                            title="Auto-added return hop (mirror return)"
-                            className="inline-flex items-center gap-1.5 border border-dashed border-border/50 bg-muted/10 px-2 py-1 font-mono text-xs text-muted-foreground/60"
-                          >
-                            <span className="tabular-nums">
-                              {selectedPath.length + i + 1}
-                            </span>
-                            <span>
-                              {peer.name || (
-                                <span className="italic">unknown</span>
-                              )}
-                            </span>
-                            <span className="text-muted-foreground/40">
-                              {peer.pubkey.slice(0, hashSize * 2)}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    )}
-
-                    <div className="space-y-2 pt-2 border-t border-border">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="label-overline shrink-0">
-                          Repeaters
-                        </span>
-                        <div className="flex min-w-0 flex-1 sm:flex-none items-center gap-2">
-                          <Select
-                            value={sort}
-                            onValueChange={(v) => setSort(v as PeerSort)}
-                          >
-                            <SelectTrigger className="h-7 w-24 sm:w-36 shrink-0 rounded-none font-mono text-[11px] uppercase tracking-[0.06em]">
-                              {/* Item-aligned SelectContent measures this node, so the labels must ride inside SelectValue. */}
-                              <SelectValue>
-                                <span className="sm:hidden">
-                                  {SORT_LABEL_SHORT[sort]}
-                                </span>
-                                <span className="hidden sm:inline">
-                                  {SORT_LABEL[sort]}
-                                </span>
-                              </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent className="rounded-none font-mono text-xs">
-                              <SelectItem
-                                value="name"
-                                className="font-mono text-xs uppercase tracking-[0.06em]"
-                              >
-                                Alphabetical
-                              </SelectItem>
-                              <SelectItem
-                                value="recent"
-                                className="font-mono text-xs uppercase tracking-[0.06em]"
-                              >
-                                Last seen
-                              </SelectItem>
-                              <SelectItem
-                                value="signal"
-                                className="font-mono text-xs uppercase tracking-[0.06em]"
-                              >
-                                Signal
-                              </SelectItem>
-                              <SelectItem
-                                value="distance"
-                                disabled={!companionCoords}
-                                className="font-mono text-xs uppercase tracking-[0.06em]"
-                              >
-                                Distance{!companionCoords ? " (no location)" : ""}
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            value={filter}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                              setFilter(e.target.value)
-                            }
-                            placeholder="filter…"
-                            className="h-7 w-32 min-w-0 flex-1 sm:flex-none rounded-none font-mono text-base md:text-xs"
-                          />
-                        </div>
-                      </div>
-                      <div className="border border-border max-h-72 overflow-y-auto divide-y divide-border/60">
-                        {filteredPeers.length === 0 ? (
-                          <div className="px-3 py-6 text-center text-sm text-muted-foreground/60">
-                            <Radio className="size-5 mx-auto mb-2 text-muted-foreground/30" />
-                            No matching repeaters
-                          </div>
-                        ) : (
-                          filteredPeers.map((peer) => (
-                            <button
-                              key={peer.pubkey}
-                              type="button"
-                              onClick={() => addPeer(peer)}
-                              className="w-full flex items-center justify-between gap-3 px-3 py-2 sm:py-1.5 text-left hover:bg-muted/40 transition-colors group"
-                            >
-                              <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
-                                <div className="text-sm font-medium truncate">
-                                  {peer.name || (
-                                    <span className="italic text-muted-foreground">
-                                      unknown
-                                    </span>
-                                  )}
-                                </div>
-                                <code className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0">
-                                  {truncateMid(peer.pubkey, 8, 4)}
-                                </code>
-                              </div>
-                              <Plus className="size-3.5 text-muted-foreground/40 group-hover:text-primary transition-colors" />
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
+                {/* Kept mounted in manual mode, so the list keeps its sort and filter across a switch. */}
+                <div hidden={mode !== "select"}>
+                  <HopPicker
+                    peers={peers}
+                    hashSize={hashSize}
+                    hops={selectedPath}
+                    onHopsChange={setSelectedPath}
+                    origin={companionCoords}
+                    summary={`${pathHopCount} hops · ${pathByteLen}B`}
+                    trailing={mirrorPeers.map((peer, i) => (
+                      <li
+                        key={`mirror-${peer.pubkey}-${i}`}
+                        title="Auto-added return hop (mirror return)"
+                        className="inline-flex items-center gap-1.5 border border-dashed border-border/50 bg-muted/10 px-2 py-1 font-mono text-xs text-muted-foreground/60"
+                      >
+                        <span className="tabular-nums">{selectedPath.length + i + 1}</span>
+                        <span>{peer.name || <span className="italic">unknown</span>}</span>
+                        <span className="text-muted-foreground/40">{peer.pubkey.slice(0, hashSize * 2)}</span>
+                      </li>
+                    ))}
+                  />
+                </div>
+                {mode === "manual" && (
                   <div className="space-y-2">
                     <label className="label-overline block">
                       Manual path · hex
@@ -1292,31 +981,6 @@ export function TracesPage() {
         tests={savedTests ?? []}
       />
     </div>
-  );
-}
-
-function ModeToggle({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "px-3 py-1 font-mono text-[10px] uppercase tracking-[0.12em] transition-colors relative before:absolute before:inset-x-0 before:-inset-y-2 before:content-[''] sm:before:hidden",
-        active
-          ? "bg-primary/10 text-primary border border-primary/30"
-          : "border border-transparent text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

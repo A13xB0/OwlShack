@@ -107,7 +107,7 @@ func (rm *Client) sendLogin(pubkeyHex, password string, roomSyncSince *uint32, t
 		rm.loginMu.Unlock()
 	}()
 
-	pkt, outPath, hashSize := rm.routedPacket(peerIdentity.PublicKey(), peer, meshcore.PayloadTypeAnonReq, payload)
+	pkt, outPath, hashSize := rm.routedPacket(peer, meshcore.PayloadTypeAnonReq, payload)
 
 	if err := rm.node.SendPacket(pkt); err != nil {
 		return nil, fmt.Errorf("sending login: %w", err)
@@ -150,14 +150,7 @@ func (rm *Client) sendLogin(pubkeyHex, password string, roomSyncSince *uint32, t
 		rm.mu.Unlock()
 		return &LoginResult{Success: true, IsAdmin: isAdmin, Permissions: perms, Role: role}, nil
 	case <-time.After(wait):
-		// A login sent down a learned route that never answers is the one case where that route has
-		// to be doubted: every later command depends on the session it establishes, and nothing
-		// else ever clears the path, so a route gone stale would fail forever and identically each
-		// time. Dropping it here makes the next attempt flood and rediscover, which is what the
-		// firmware's own path discovery does deliberately (companion MyMesh.cpp:1613-1616) and what
-		// its operators do by hand with CMD_RESET_PATH. Only login does this: a mid-session command
-		// timing out is far more likely to be ordinary loss, and dropping a good route over it
-		// would put a lossy link into a flood loop.
+		// A login that times out on a route drops it so the retry floods, as the firmware's path discovery does (companion MyMesh.cpp:1613-1616); a lost mid-session reply does not.
 		if outPath != nil {
 			rm.log.Debug("login timed out on a learned route, clearing it so the retry floods",
 				"peer", pubkeyHex[:12], "path", hex.EncodeToString(outPath))

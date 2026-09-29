@@ -181,7 +181,8 @@ overrides:
   config, so a node's stored nil keeps following the global.
 - Consumers: `advert.SendSelf` (takes bytes, writes size-1 into PathLength's
   top 2 bits), `Companion.sendGroupReply`, and the repeater's adverts.
-  Direct-routed sends are unaffected — they use the *learned*
-  `OutPathHashSize` from the peer/contact. Trigger `pathHashSize` still wins
-  over the companion default (`resolvePathHashSize`, where 0 = mirror the
+  Anything sent to a contact uses that contact's own bytes per hop instead (`companion_contacts.path_hash_size`, see
+  [firmware-protocol.md](./firmware-protocol.md)), flooded or direct; a
+  learned route keeps the size it was learned at. Trigger `pathHashSize` still wins
+  over the contact's or companion's default (`resolvePathHashSize`, where 0 = mirror the
   incoming packet).

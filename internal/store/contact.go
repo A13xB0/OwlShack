@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -41,14 +42,16 @@ type Contact struct {
 	// Send route, our neighbour first; nil = unknown (flood), empty = direct.
 	OutPath         []byte
 	OutPathHashSize uint8
-	LastSeen        time.Time // zero when never heard
-	LastAdvertTS    uint32
-	AddedAt         time.Time
-	Metadata        ContactMetadata
+	// PathHashSize is the bytes per hop everything sent to this contact uses, 1 to 3.
+	PathHashSize uint8
+	LastSeen     time.Time // zero when never heard
+	LastAdvertTS uint32
+	AddedAt      time.Time
+	Metadata     ContactMetadata
 }
 
 const contactColumns = `companion_id, peer_pubkey, name, type, lat, lon,
-	feat1, feat2, out_path, out_path_hash_size, last_seen, last_advert_ts,
+	feat1, feat2, out_path, out_path_hash_size, path_hash_size, last_seen, last_advert_ts,
 	added_at, metadata`
 
 func scanContact(s interface{ Scan(...any) error }) (*Contact, error) {
@@ -59,7 +62,7 @@ func scanContact(s interface{ Scan(...any) error }) (*Contact, error) {
 	var outPath sql.NullString
 	if err := s.Scan(
 		&c.CompanionID, &c.PeerPubKey, &c.Name, &c.Type, &c.Lat, &c.Lon,
-		&feat1, &feat2, &outPath, &c.OutPathHashSize, &lastSeen, &lastAdvertTS,
+		&feat1, &feat2, &outPath, &c.OutPathHashSize, &c.PathHashSize, &lastSeen, &lastAdvertTS,
 		&c.AddedAt, &metaStr,
 	); err != nil {
 		return nil, err
@@ -80,10 +83,14 @@ type ContactRepo struct {
 }
 
 func (r *ContactRepo) Add(ctx context.Context, companionID int64, peerPubKey []byte, name, contactType string) error {
-	// Only overwrite the cached identity when the new value is non-empty, so adding by bare pubkey never blanks a known name.
+	// A re-add keeps a known name and type, and bytes per hop is set only here, from the advert heard or else the node's own size.
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO companion_contacts (companion_id, peer_pubkey, name, type)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO companion_contacts (companion_id, peer_pubkey, name, type, path_hash_size)
+		VALUES (?1, ?2, ?3, ?4, COALESCE(
+			(SELECT out_path_hash_size FROM discovered_peers WHERE pubkey = ?2 AND out_path_hash_size BETWEEN 1 AND 3),
+			(SELECT path_hash_size FROM companions WHERE id = ?1 AND path_hash_size BETWEEN 1 AND 3),
+			(SELECT path_hash_size FROM settings WHERE id = 1 AND path_hash_size BETWEEN 1 AND 3),
+			1))
 		ON CONFLICT(companion_id, peer_pubkey) DO UPDATE SET
 			name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE companion_contacts.name END,
 			type = CASE WHEN excluded.type <> '' THEN excluded.type ELSE companion_contacts.type END`,
@@ -112,20 +119,21 @@ func (r *ContactRepo) Restore(ctx context.Context, c *Contact) error {
 	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO companion_contacts (
 			companion_id, peer_pubkey, name, type, lat, lon, feat1, feat2,
-			out_path, out_path_hash_size, last_seen, last_advert_ts, added_at, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			out_path, out_path_hash_size, path_hash_size, last_seen, last_advert_ts, added_at, metadata)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(companion_id, peer_pubkey) DO UPDATE SET
 			name = excluded.name, type = excluded.type,
 			lat = excluded.lat, lon = excluded.lon,
 			feat1 = excluded.feat1, feat2 = excluded.feat2,
 			out_path = excluded.out_path,
 			out_path_hash_size = excluded.out_path_hash_size,
+			path_hash_size = excluded.path_hash_size,
 			last_seen = excluded.last_seen,
 			last_advert_ts = excluded.last_advert_ts,
 			added_at = excluded.added_at,
 			metadata = excluded.metadata`,
 		c.CompanionID, c.PeerPubKey, c.Name, c.Type, c.Lat, c.Lon, c.Feat1, c.Feat2,
-		c.OutPath, c.OutPathHashSize, lastSeen, c.LastAdvertTS, addedAt, string(meta),
+		c.OutPath, c.OutPathHashSize, max(c.PathHashSize, 1), lastSeen, c.LastAdvertTS, addedAt, string(meta),
 	)
 	if err != nil {
 		return fmt.Errorf("restoring contact: %w", err)
@@ -171,6 +179,29 @@ func (r *ContactRepo) UpdateOutPath(ctx context.Context, companionID int64, peer
 	)
 	if err != nil {
 		return fmt.Errorf("updating contact out_path: %w", err)
+	}
+	return nil
+}
+
+// ErrNotContact is a write to a node that is not the companion's contact, which has no row to hold it.
+var ErrNotContact = errors.New("not a contact of this companion")
+
+// SetRoute saves an operator's route and bytes per hop together, so the two can never disagree.
+func (r *ContactRepo) SetRoute(ctx context.Context, companionID int64, peerPubKey []byte, path []byte, hashSize uint8) error {
+	outHashSize := hashSize
+	if path == nil {
+		outHashSize = 0
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE companion_contacts SET out_path = ?, out_path_hash_size = ?, path_hash_size = ?
+		WHERE companion_id = ? AND peer_pubkey = ?`,
+		path, outHashSize, hashSize, companionID, peerPubKey,
+	)
+	if err != nil {
+		return fmt.Errorf("setting contact route: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotContact
 	}
 	return nil
 }

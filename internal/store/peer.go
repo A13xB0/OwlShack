@@ -17,7 +17,8 @@ type Peer struct {
 	Feat1  uint16
 	Feat2  uint16
 	// Advert path, peer's neighbour first.
-	OutPath         []byte
+	OutPath []byte
+	// OutPathHashSize is the size the peer floods its adverts at; 0 is unknown, as a zero-hop advert says nothing, and an upsert of 0 keeps the one known.
 	OutPathHashSize uint8
 	LastAdvertTS    uint32
 	LastSeen        time.Time
@@ -44,7 +45,7 @@ func (r *PeerRepo) Upsert(ctx context.Context, p *Peer) error {
 			feat1              = excluded.feat1,
 			feat2              = excluded.feat2,
 			out_path           = excluded.out_path,
-			out_path_hash_size = excluded.out_path_hash_size,
+			out_path_hash_size = CASE WHEN excluded.out_path_hash_size = 0 THEN discovered_peers.out_path_hash_size ELSE excluded.out_path_hash_size END,
 			last_advert_ts     = excluded.last_advert_ts,
 			last_seen          = excluded.last_seen,
 			snr                = excluded.snr,

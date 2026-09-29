@@ -190,9 +190,7 @@ func (b *backend) Repeater(name string) (*api.RepeaterOps, bool) {
 		PathReset: func(pubkeyHex string) error {
 			return rm.ResetPeerPath(pubkeyHex)
 		},
-		PathSet: func(pubkeyHex, pathHex string, pathHashSize int) error {
-			return rm.SetPeerPath(pubkeyHex, pathHex, pathHashSize)
-		},
+		PathSet: rm.SetPeerPath,
 		NeighborsReq: func(pubkeyHex string, count uint8, offset uint16) (any, error) {
 			return rm.SendNeighborsReq(pubkeyHex, count, offset, repeaterReqTimeout)
 		},

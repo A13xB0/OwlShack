@@ -103,3 +103,80 @@ func TestContactMetadataPatch_KeepsWhatItDoesNotName(t *testing.T) {
 		t.Errorf("a contact that does not exist got %d, want 404", code)
 	}
 }
+
+// Absence carried both "unknown" and "direct", so the contact page labelled a direct neighbour Flood.
+func TestContactJSON_OutPathSaysUnknownOrDirect(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "contacts.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	c := store.Companion{Name: "home"}
+	cases := map[byte]struct {
+		path []byte
+		want string
+	}{
+		1: {nil, `"outPath":null`},
+		2: {[]byte{}, `"outPath":""`},
+		3: {[]byte{0xe6, 0x07}, `"outPath":"e607"`},
+	}
+	st.WriteSync(func() {
+		if err = st.Companions.Create(ctx, &c); err != nil {
+			return
+		}
+		for b, tc := range cases {
+			pub := bytes.Repeat([]byte{b}, 32)
+			if err = st.Contacts.Add(ctx, c.ID, pub, "rep", "REPEATER"); err == nil {
+				err = st.Contacts.UpdateOutPath(ctx, c.ID, pub, tc.path, 1)
+			}
+			if err != nil {
+				return
+			}
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for b, tc := range cases {
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/companions/home/contacts/"+hex.EncodeToString(bytes.Repeat([]byte{b}, 32)), nil))
+		if !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("path %x: %d %s, want %s", tc.path, rec.Code, rec.Body, tc.want)
+		}
+	}
+}
+
+// A heard advert's path is how it reached us, not a route anyone learned; the firmware starts a new contact at unknown (BaseChatMesh.cpp:111).
+func TestAddContact_LearnsNoRouteFromTheAdvert(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "contacts.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	c := store.Companion{Name: "home"}
+	pub := bytes.Repeat([]byte{0xcd}, 32)
+	st.WriteSync(func() {
+		if err = st.Companions.Create(ctx, &c); err == nil {
+			err = st.Peers.Upsert(ctx, &store.Peer{PubKey: pub, Name: "rep", Type: "REPEATER", OutPath: []byte{0xaa, 0xbb}, OutPathHashSize: 1})
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := NewServer(st, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	rec := httptest.NewRecorder()
+	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/companions/home/contacts", strings.NewReader(`{"pubkey":"`+hex.EncodeToString(pub)+`"}`)))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("add: %d %s", rec.Code, rec.Body)
+	}
+	got, err := st.Contacts.Get(ctx, c.ID, pub)
+	if err != nil || got == nil {
+		t.Fatalf("contact not added: %v", err)
+	}
+	if got.OutPath != nil {
+		t.Errorf("new contact routes down %x, the advert's path reversed; want nil (flood until a PATH is learned)", got.OutPath)
+	}
+}

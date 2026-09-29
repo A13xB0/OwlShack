@@ -43,9 +43,7 @@ func (rm *Client) SendRoomKeepAlive(pubkeyHex string, since uint32) error {
 	if sess == nil || sess.sharedSecret == nil {
 		return fmt.Errorf("not logged in to this room")
 	}
-	outPath, hashSize := rm.learnedRoute(peerIdentity.PublicKey(), peer)
-	routeType, _ := routeForPeer(outPath, hashSize)
-	if routeType != meshcore.RouteTypeDirect {
+	if outPath, _ := learnedRoute(peer); outPath == nil {
 		return fmt.Errorf("no direct route to the room yet — it ignores flooded keep-alives; log in (flood) to learn one")
 	}
 
@@ -71,7 +69,7 @@ func (rm *Client) SendRoomKeepAlive(pubkeyHex string, since uint32) error {
 	if err != nil {
 		return fmt.Errorf("encoding keep-alive: %w", err)
 	}
-	pkt, _, _ := rm.routedPacket(peerPub, peer, meshcore.PayloadTypeReq, reqBytes)
+	pkt, _, _ := rm.routedPacket(peer, meshcore.PayloadTypeReq, reqBytes)
 	return rm.node.SendPacket(pkt)
 }
 
@@ -287,7 +285,7 @@ func (rm *Client) SendCLI(pubkeyHex, command string, timeout time.Duration) (str
 		return "", fmt.Errorf("encoding text message: %w", err)
 	}
 
-	pkt, outPath, hashSize := rm.routedPacket(peerIdentity.PublicKey(), peer, meshcore.PayloadTypeTxtMsg, msgBytes)
+	pkt, outPath, hashSize := rm.routedPacket(peer, meshcore.PayloadTypeTxtMsg, msgBytes)
 
 	if err := rm.node.SendPacket(pkt); err != nil {
 		return "", fmt.Errorf("sending CLI: %w", err)

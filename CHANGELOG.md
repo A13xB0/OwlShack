@@ -5,11 +5,20 @@ top until tagged.
 
 ## Unreleased
 
-Schema `user_version` 19: adds the sensor tables, who may read each companion's telemetry, where a
-CAP bot's alerts must be, and which map tiles to use.
+Schema `user_version` 20: adds the sensor tables, who may read each companion's telemetry, where a
+CAP bot's alerts must be, which map tiles to use, and each contact's bytes per hop.
 
 ### Added
 
+- **Bytes per hop for each contact.** A contact is added at the size it floods its adverts at, and
+  everything sent to it by flood or direct goes out at that size: requests, DMs, ACKs and
+  replies. A learned path keeps the size it was learned at. Before, requests to a repeater and DMs
+  always flooded at 1 byte per hop. A saved path at another size is dropped on upgrade, so the next
+  send floods and learns one at the right size.
+- **One Path window for every contact.** Repeaters, rooms, sensors, chats and the contact page share
+  it. It shows the route in use with each hop named, and sets Flood, Direct or a path at a chosen
+  bytes per hop. Pick the hops from the repeater list, as on the Trace page, or type them as hex.
+  A hop whose hash more than one repeater shares is marked, here and on the Trace page.
 - **Sensors page.** Reads I2C sensors on the Pi every 5 seconds: SHTC3, LPS22HB, BME680, ENS210,
   ADS1115 or SGM58031 ADC inputs, and a PiSugar UPS. Each card shows whether it is healthy,
   calibrating, waiting, stale or failing.
@@ -62,6 +71,17 @@ CAP bot's alerts must be, and which map tiles to use.
 
 ### Fixed
 
+- **A repeater's path shows the route in use.** After a restart the repeater page and the chat's
+  Path dialog read Flood while requests still went direct, until you reset the path. The saved
+  route is now loaded at start, so what you see is what is sent.
+- **A new contact starts with no route.** Adding a contact used the reversed path of the advert
+  we heard as its route. It now floods until the contact answers with a path, as the firmware
+  does.
+- **A direct contact shows as Direct.** The contact page showed a direct neighbour as Flood.
+- **Set path only takes a path that fits.** A path that was not whole hops, or used more than 3
+  bytes per hop, was sent with a length that did not match. Those are now refused with a reason.
+- **Resetting a path always sticks.** A reset or a set path could be lost when the database was
+  busy, and the old route came back after a restart.
 - **Meteoalarm CAP feeds work.** Every alert from a Meteoalarm feed failed to load, because the
   bot fetched the feed entry's web page rather than its alert document.
 - **A CAP alert is sent once.** A feed that posts one alert under many entries, as Meteoalarm does

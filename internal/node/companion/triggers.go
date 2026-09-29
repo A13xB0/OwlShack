@@ -160,6 +160,7 @@ func (c *Companion) makeCallback(ctx context.Context, entry triggerEntry) trigge
 
 		case "dm":
 			pubkey, _ := evt.Data["SenderPubKey"].(string)
+			hashSize := resolvePathHashSize(entry.config.PathHashSize, evt, c.bytesPerHopHex(pubkey))
 			c.log.Debug("sending dm reply", "peer", pubkey, "pathHashSize", hashSize)
 			if err := c.sendDMReply(pubkey, rendered, hashSize, retryTimeout); err != nil {
 				c.log.Error("send error", "error", err)
@@ -175,6 +176,7 @@ func (c *Companion) makeCallback(ctx context.Context, entry triggerEntry) trigge
 				}
 			}
 			for _, pubkey := range triggerContacts(entry.config) {
+				hashSize := resolvePathHashSize(entry.config.PathHashSize, evt, c.bytesPerHopHex(pubkey))
 				c.log.Debug("sending dm", "peer", pubkey, "pathHashSize", hashSize)
 				if err := c.sendDMReply(pubkey, rendered, hashSize, retryTimeout); err != nil {
 					c.log.Error("send error", "peer", pubkey, "error", err)
