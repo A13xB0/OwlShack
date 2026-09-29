@@ -194,8 +194,7 @@ func (rm *Client) SendContactTelemetryReq(pubkeyHex string, timeout time.Duratio
 	}
 
 	self := rm.node.Identity()
-	selfSeed := self.Seed()
-	sharedSecret, err := meshcore.DeriveSharedSecret(selfSeed[:], peerIdentity.PublicKeyBytes())
+	sharedSecret, err := rm.node.SharedSecret(peerIdentity)
 	if err != nil {
 		return nil, fmt.Errorf("deriving shared secret: %w", err)
 	}

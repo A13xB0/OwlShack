@@ -43,9 +43,7 @@ func (rm *Client) sendLogin(pubkeyHex, password string, roomSyncSince *uint32, t
 
 	// The static identity (not an ephemeral key) puts us in the repeater's ACL, so its getClient() lookup accepts blank-password reauth.
 	selfIdentity := rm.node.Identity()
-	selfSeed := selfIdentity.Seed()
-
-	sharedSecret, err := meshcore.DeriveSharedSecret(selfSeed[:], peerIdentity.PublicKeyBytes())
+	sharedSecret, err := rm.node.SharedSecret(peerIdentity)
 	if err != nil {
 		return nil, fmt.Errorf("deriving shared secret: %w", err)
 	}

@@ -71,6 +71,9 @@ CAP bot's alerts must be, which map tiles to use, and each contact's bytes per h
 
 ### Fixed
 
+- **Logging in with an imported private key.** A companion using a key imported from a device
+  (`prv.key`) could not log in to any repeater or room, or ask a contact for telemetry: the
+  node dropped every request as undecryptable, so each one timed out. A generated key was fine.
 - **A repeater's path shows the route in use.** After a restart the repeater page and the chat's
   Path dialog read Flood while requests still went direct, until you reset the path. The saved
   route is now loaded at start, so what you see is what is sent.
