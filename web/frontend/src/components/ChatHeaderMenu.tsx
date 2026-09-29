@@ -7,7 +7,6 @@ import {
   MoreVertical,
   Pencil,
   Route,
-  RotateCw,
   Search,
   Share2,
   Trash2,
@@ -18,6 +17,7 @@ import QRCode from "qrcode";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PathDialog } from "@/components/PathDialog";
 import {
   Dialog,
   DialogContent,
@@ -32,7 +32,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 
 interface Conversation {
   id: string;
@@ -148,13 +147,15 @@ export function ChatHeaderMenu({
                   Details
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem
-                onClick={() => setDialog("path")}
-                className="font-mono text-xs uppercase tracking-[0.08em] rounded-none"
-              >
-                <Route className="size-3.5" />
-                Path Info
-              </DropdownMenuItem>
+              {conversation.pubkey && (
+                <DropdownMenuItem
+                  onClick={() => setDialog("path")}
+                  className="font-mono text-xs uppercase tracking-[0.08em] rounded-none"
+                >
+                  <Route className="size-3.5" />
+                  Edit path
+                </DropdownMenuItem>
+              )}
             </>
           )}
 
@@ -201,12 +202,15 @@ export function ChatHeaderMenu({
         conversation={conversation}
         onDeleted={onMessagesCleared}
       />
-      <PathInfoDialog
-        open={dialog === "path"}
-        onClose={() => setDialog(null)}
-        companion={companion}
-        conversation={conversation}
-      />
+      {conversation.pubkey && (
+        <PathDialog
+          open={dialog === "path"}
+          onOpenChange={(o) => !o && setDialog(null)}
+          companion={companion}
+          pubkey={conversation.pubkey}
+          name={conversation.name}
+        />
+      )}
     </>
   );
 }
@@ -734,136 +738,3 @@ function DeleteHistoryDialog({
   );
 }
 
-function PathInfoDialog({
-  open,
-  onClose,
-  companion,
-  conversation,
-}: {
-  open: boolean;
-  onClose: () => void;
-  companion: string;
-  conversation: Conversation;
-}) {
-  const [pathInfo, setPathInfo] = useState<{
-    hasPath: boolean;
-    directNeighbor: boolean;
-    hops: number;
-    outPath: string;
-    pathHashSize: number;
-  } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [resetting, setResetting] = useState(false);
-
-  const loadPath = useCallback(() => {
-    if (!conversation.pubkey) return;
-    setLoading(true);
-    fetch(
-      `/api/companions/${encodeURIComponent(companion)}/contacts/${encodeURIComponent(conversation.pubkey)}/path`,
-    )
-      .then((r) => {
-        if (!r.ok) throw new Error("fetch");
-        return r.json();
-      })
-      .then(setPathInfo)
-      .catch(() => setPathInfo(null))
-      .finally(() => setLoading(false));
-  }, [companion, conversation.pubkey]);
-
-  useEffect(() => {
-    if (open) loadPath();
-  }, [open, loadPath]);
-
-  const resetPath = useCallback(async () => {
-    if (!conversation.pubkey) return;
-    setResetting(true);
-    try {
-      const r = await fetch(
-        `/api/companions/${encodeURIComponent(companion)}/contacts/${encodeURIComponent(conversation.pubkey)}/path`,
-        { method: "DELETE" },
-      );
-      if (!r.ok) throw new Error("reset");
-      toast.success("Path reset — will use flood routing");
-      loadPath();
-    } catch {
-      toast.error("Reset failed");
-    } finally {
-      setResetting(false);
-    }
-  }, [companion, conversation.pubkey, loadPath]);
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="rounded-none border-border bg-card max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="font-mono text-sm uppercase tracking-[0.12em]">
-            Path Info
-          </DialogTitle>
-          <DialogDescription className="font-mono text-xs text-muted-foreground">
-            Routing path to {conversation.name}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3">
-          {loading ? (
-            <p className="font-mono text-xs text-muted-foreground/60">Loading...</p>
-          ) : pathInfo === null ? (
-            <p className="font-mono text-xs text-muted-foreground/60">
-              Path information unavailable. Peer may not be in the routing table yet.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-px bg-border border border-border">
-                <StatCell label="Status" value={
-                  pathInfo.directNeighbor ? "Direct" : pathInfo.hasPath ? "Routed" : "Flood"
-                } />
-                <StatCell label="Hops" value={pathInfo.hasPath ? String(pathInfo.hops) : "—"} />
-              </div>
-              {pathInfo.outPath && (
-                <div className="space-y-1">
-                  <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                    Path (hex)
-                  </span>
-                  <code className="block font-mono text-[11px] p-2 bg-background border border-border break-all select-all">
-                    {pathInfo.outPath}
-                  </code>
-                </div>
-              )}
-            </div>
-          )}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={loadPath}
-              disabled={loading}
-              className="rounded-none font-mono text-[11px] uppercase tracking-widest"
-            >
-              <RotateCw className={cn("size-3", loading && "animate-spin")} />
-              Refresh
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={resetPath}
-              disabled={resetting || !pathInfo?.hasPath}
-              className="rounded-none font-mono text-[11px] uppercase tracking-widest"
-            >
-              Reset Path
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function StatCell({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-card p-2.5 space-y-0.5">
-      <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-        {label}
-      </span>
-      <div className="font-mono text-sm font-semibold tabular-nums">{value}</div>
-    </div>
-  );
-}

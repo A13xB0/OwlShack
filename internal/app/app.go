@@ -470,6 +470,8 @@ func reloadCompanions(ctx context.Context, oldCfg, newCfg *config.Config, runnin
 		}
 		// Bound to this companion's id, so it can never answer with another node's channels.
 		c.SetTelemetry(telemetry.MapFor(store.TelemetryNode{Kind: store.NodeKindCompanion, ID: p.block.ID}))
+		// RX is live from NewCompanion, so seed at once: later, a route learned in between would be overwritten.
+		hydratePeerTables(ctx, db, []*companion.Companion{c})
 		if err := c.Start(ctx); err != nil {
 			stopAll()
 			return nil, stats, fmt.Errorf("starting companion %q: %w", p.block.Name, err)
@@ -479,8 +481,6 @@ func reloadCompanions(ctx context.Context, oldCfg, newCfg *config.Config, runnin
 		stats.started++
 		slog.Info("started companion", "companion", p.block.Name)
 	}
-
-	hydratePeerTables(ctx, db, fresh)
 
 	// Reused instances kept their observer across the reload, so they need the current value too.
 	for _, c := range companions {
@@ -537,48 +537,67 @@ func stopCompanions(companions []*companion.Companion) {
 	}
 }
 
-// hydratePeerTables seeds peer tables from the DB; OutPath is deliberately left unseeded (send-paths are learned-only).
+// hydratePeerTables seeds a new companion's peer table from the DB before it starts, with its contacts' saved send-paths; it never overwrites what RX already learned.
 func hydratePeerTables(ctx context.Context, db *store.Store, companions []*companion.Companion) {
 	if len(companions) == 0 {
 		return
 	}
-
 	peers, err := db.Peers.LoadAll(ctx)
 	if err != nil {
 		slog.Error("failed to load peers for hydration", "error", err)
 		return
 	}
-	if len(peers) == 0 {
-		return
-	}
+	// A companion rebuilt on reload may have left a route write queued; the writer is FIFO, so this drains it.
+	db.WriteSync(func() {})
 
-	for _, sp := range peers {
-		id, err := meshcore.NewIdentityFromBytes(sp.PubKey)
+	for _, c := range companions {
+		table := c.Node().Peers()
+		for _, sp := range peers {
+			id, err := meshcore.NewIdentityFromBytes(sp.PubKey)
+			if err != nil {
+				slog.Debug("skipping peer with invalid pubkey", "error", err)
+				continue
+			}
+			if table.Lookup(id.PublicKey()) != nil {
+				continue
+			}
+			table.Insert(&node.Peer{
+				Identity:            id,
+				Name:                sp.Name,
+				Type:                sp.Type,
+				Lat:                 sp.Lat,
+				Lon:                 sp.Lon,
+				Feat1:               sp.Feat1,
+				Feat2:               sp.Feat2,
+				LastAdvertTimestamp: sp.LastAdvertTS,
+				LastSeen:            sp.LastSeen,
+				SNR:                 derefFloat32(sp.SNR),
+				RSSI:                derefInt8(sp.RSSI),
+			})
+		}
+
+		contacts, err := db.Contacts.List(ctx, c.ID())
 		if err != nil {
-			slog.Debug("skipping peer with invalid pubkey", "error", err)
+			slog.Error("failed to load contact routes for hydration", "companion", c.Name(), "error", err)
 			continue
 		}
-
-		np := &node.Peer{
-			Identity:            id,
-			Name:                sp.Name,
-			Type:                sp.Type,
-			Lat:                 sp.Lat,
-			Lon:                 sp.Lon,
-			Feat1:               sp.Feat1,
-			Feat2:               sp.Feat2,
-			LastAdvertTimestamp: sp.LastAdvertTS,
-			LastSeen:            sp.LastSeen,
-			SNR:                 derefFloat32(sp.SNR),
-			RSSI:                derefInt8(sp.RSSI),
+		routes := 0
+		for _, ct := range contacts {
+			id, err := meshcore.NewIdentityFromBytes(ct.PeerPubKey)
+			if err != nil {
+				continue
+			}
+			// A contact never heard advertising (added by key, or its peer deleted) still needs a peer to carry its route.
+			p := table.Lookup(id.PublicKey())
+			if p == nil {
+				table.Insert(&node.Peer{Identity: id, Name: ct.Name, Type: ct.Type})
+			}
+			if ct.OutPath != nil && (p == nil || p.OutPath == nil) && table.SetOutPath(id.PublicKey(), ct.OutPath, max(ct.OutPathHashSize, 1)) {
+				routes++
+			}
 		}
-
-		for _, c := range companions {
-			c.Node().Peers().Insert(np)
-		}
+		slog.Info("hydrated peer table from database", "companion", c.Name(), "peers", len(peers), "contacts", len(contacts), "routes", routes)
 	}
-
-	slog.Info("hydrated peer tables from database", "peers", len(peers), "companions", len(companions))
 }
 
 // reconnectModem performs a single modem.Setup attempt and rebuilds the mux, dead-watcher and packet logger.

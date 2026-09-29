@@ -76,6 +76,8 @@ type Client struct {
 	companionID int64 // owner of the contact rows that persist learned routes
 	log         *slog.Logger
 	stats       airtimeEstimator
+	// ownHashSize is the companion's bytes per hop, for a node that is not a contact; required.
+	ownHashSize func() uint8
 
 	mu       sync.Mutex
 	sessions map[string]*Session
@@ -105,8 +107,9 @@ func (rm *Client) UniqueTimestamp() uint32 {
 	return ts
 }
 
-func NewClient(n *node.Node, st *store.Store, companionID int64, log *slog.Logger, stats airtimeEstimator) *Client {
+func NewClient(n *node.Node, st *store.Store, companionID int64, log *slog.Logger, stats airtimeEstimator, ownHashSize func() uint8) *Client {
 	return &Client{
+		ownHashSize: ownHashSize,
 		node:        n,
 		store:       st,
 		companionID: companionID,
@@ -126,38 +129,33 @@ func (rm *Client) persistOutPath(pubkey []byte, path []byte, hashSize uint8) {
 	})
 }
 
-// learnedRoute resolves the send-path to a peer: the live peer table first, then the contact row the
-// route was persisted to. Without that fallback every admin command floods after a restart, because
-// hydratePeerTables leaves the table's OutPath nil and only an inbound PATH refills it — and a flood
-// request makes the far end reply by flood too (src/helpers/RoutingPolicy.h:39 returns PATH_RETURN
-// unconditionally), so one missing route costs both directions. The table wins when both hold one,
-// since persistOutPath writes the row asynchronously and so lags a freshly learned path.
-func (rm *Client) learnedRoute(pubkey [meshcore.PubKeySize]byte, peer *node.Peer) (path []byte, hashSize uint8) {
-	if peer != nil && peer.OutPath != nil {
-		return peer.OutPath, max(peer.OutPathHashSize, 1)
-	}
-	if rm.store == nil {
+// learnedRoute is the peer's learned send-path; hydratePeerTables seeds it from the contact row at start, so nil means none known.
+func learnedRoute(peer *node.Peer) (path []byte, hashSize uint8) {
+	if peer == nil || peer.OutPath == nil {
 		return nil, 0
 	}
-	ct, err := rm.store.Contacts.Get(context.Background(), rm.companionID, pubkey[:])
-	if err != nil || ct == nil || ct.OutPath == nil {
-		return nil, 0
-	}
-	return ct.OutPath, max(ct.OutPathHashSize, 1)
+	return peer.OutPath, max(peer.OutPathHashSize, 1)
 }
 
-// routeForPeer follows the OutPath contract: only nil (unknown) floods, and the length byte is hashSize-1 in the upper 2 bits.
-func routeForPeer(path []byte, hashSize uint8) (routeType byte, pathLen uint8) {
-	if path == nil {
-		return meshcore.RouteTypeFlood, 0
+// bytesPerHop is what requests to a peer go out at: its contact's setting, else the companion's own.
+func (rm *Client) bytesPerHop(pubkey []byte) uint8 {
+	if ct, err := rm.store.Contacts.Get(context.Background(), rm.companionID, pubkey); err == nil && ct != nil {
+		return ct.PathHashSize
 	}
+	return rm.ownHashSize()
+}
+
+// routeForPeer floods only on nil; a flood or 0-hop send carries bytesPerHop, since the far end replies at the request's size.
+func routeForPeer(path []byte, routeHashSize, bytesPerHop uint8) (routeType byte, pathLen uint8) {
 	if len(path) == 0 {
-		return meshcore.RouteTypeDirect, 0 // direct neighbour, no hops to encode
+		routeType = meshcore.RouteTypeDirect
+		if path == nil {
+			routeType = meshcore.RouteTypeFlood
+		}
+		return routeType, (max(bytesPerHop, 1) - 1) << 6
 	}
-	if hashSize == 0 {
-		hashSize = meshcore.PathHashSize
-	}
-	return meshcore.RouteTypeDirect, (hashSize-1)<<6 | uint8(len(path)/int(hashSize))
+	hs := max(routeHashSize, 1)
+	return meshcore.RouteTypeDirect, (hs-1)<<6 | uint8(len(path)/int(hs))
 }
 
 func (rm *Client) Session(pubkeyHex string) *Session {
@@ -219,14 +217,11 @@ func (rm *Client) replyTimeout(reqLen int, path []byte, hashSize uint8, floor ti
 	return max(node.CalcDirectTimeout(airtime, uint8(min(hops, 255))), floor)
 }
 
-// routedPacket builds a packet already addressed down a peer's learned route. It exists so the
-// length byte and the hops can never come from different places: meshcore-go writes PathLength
-// from the field and the hops from Path, so a mismatch makes the receiver read that many bytes of
-// PAYLOAD as path — a well-formed-looking send that is garbage on air. One call site did exactly
-// that. It returns the route alongside, since callers also size their reply wait from it.
-func (rm *Client) routedPacket(peerPub [meshcore.PubKeySize]byte, peer *node.Peer, payloadType byte, payload []byte) (*meshcore.Packet, []byte, uint8) {
-	outPath, hashSize := rm.learnedRoute(peerPub, peer)
-	routeType, pathLen := routeForPeer(outPath, hashSize)
+// routedPacket builds the length byte and the hops from one route, so the receiver never reads payload as path; it returns the route to size the reply wait.
+func (rm *Client) routedPacket(peer *node.Peer, payloadType byte, payload []byte) (*meshcore.Packet, []byte, uint8) {
+	outPath, hashSize := learnedRoute(peer)
+	pub := peer.Identity.PublicKey()
+	routeType, pathLen := routeForPeer(outPath, hashSize, rm.bytesPerHop(pub[:]))
 	return &meshcore.Packet{
 		Header:     meshcore.MakeHeader(routeType, payloadType, 0),
 		PathLength: pathLen,
@@ -280,7 +275,7 @@ func (rm *Client) roundtripRequest(peerPub [32]byte, peer *node.Peer, sharedSecr
 		rm.pendingMu.Unlock()
 	}()
 
-	pkt, outPath, hashSize := rm.routedPacket(peerPub, peer, meshcore.PayloadTypeReq, reqBytes)
+	pkt, outPath, hashSize := rm.routedPacket(peer, meshcore.PayloadTypeReq, reqBytes)
 
 	if err := rm.node.SendPacket(pkt); err != nil {
 		return nil, fmt.Errorf("sending %s req: %w", label, err)

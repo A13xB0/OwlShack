@@ -39,6 +39,8 @@ Aesthetic: **operator console / radio shack utility**. Phosphor-green primary on
 - `<PeerTypePill type />`
 - `<SignalStrength snr size="sm|md" showLabel />`
 - `<PeerAvatar name size="xs|sm|md|lg" />`
+- `<PathDialog companion pubkey name onChanged />`: the one route editor for every contact (repeater, room, sensor and chat pages, the contact page). Don't add another.
+- `<HopPicker peers hashSize hops onHopsChange />`: pick hops from the repeater list; the Trace page and `PathDialog` share it.
 - shadcn primitives at `@/components/ui/*`
 - Toasts: `import { toast } from "sonner"`
 

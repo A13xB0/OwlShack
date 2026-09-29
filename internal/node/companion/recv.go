@@ -44,16 +44,18 @@ func (c *Companion) sendDMAck(pkt *meshcore.Packet, senderPubKey []byte, sharedS
 			c.log.Debug("failed to send DM ACK (path return)", "error", err)
 		}
 	} else {
-		// An empty but non-nil out_path is a direct neighbour: route it direct at 0 hops; only a nil path floods.
+		// Only a nil route floods; a flood or 0-hop ACK goes out at the contact's bytes per hop.
+		size := c.bytesPerHop(senderPubKey)
 		ackPkt := &meshcore.Packet{
 			Header:     meshcore.MakeHeader(meshcore.RouteTypeFlood, meshcore.PayloadTypeAck, 0),
-			PathLength: (c.pathHashSize() - 1) << 6,
+			PathLength: (size - 1) << 6,
 			Payload:    ackPayload,
 		}
 
-		// The contact row is where a learned route is persisted; hydratePeerTables leaves the peer
-		// table's OutPath nil on purpose, so reading only that floods every ack after a restart.
 		if outPath, hs, ok := c.learnedRoute(senderPubKey); ok {
+			if len(outPath) == 0 {
+				hs = size
+			}
 			ackPkt.Header = meshcore.MakeHeader(meshcore.RouteTypeDirect, meshcore.PayloadTypeAck, 0)
 			ackPkt.Path = outPath
 			ackPkt.PathLength = (hs-1)<<6 | byte(len(outPath)/int(hs))
@@ -63,6 +65,23 @@ func (c *Companion) sendDMAck(pkt *meshcore.Packet, senderPubKey []byte, sharedS
 			c.log.Debug("failed to send DM ACK", "error", err)
 		}
 	}
+}
+
+// bytesPerHop is what everything sent to a node goes out at: its contact's setting, else the companion's own.
+func (c *Companion) bytesPerHop(pubkey []byte) uint8 {
+	if ct, err := c.store.Contacts.Get(c.runCtx, c.cfg.ID, pubkey); err == nil && ct != nil {
+		return ct.PathHashSize
+	}
+	return c.pathHashSize()
+}
+
+// bytesPerHopHex is bytesPerHop for a hex pubkey; a bad one gets the companion's own, and the send then fails on it.
+func (c *Companion) bytesPerHopHex(pubkeyHex string) uint8 {
+	pubkey, err := hex.DecodeString(pubkeyHex)
+	if err != nil {
+		return c.pathHashSize()
+	}
+	return c.bytesPerHop(pubkey)
 }
 
 // buildPathReturn is the shared builder bound to this companion's identity.
@@ -203,7 +222,9 @@ func (c *Companion) handleDMPathReturn(pkt *meshcore.Packet) {
 		hs := pp.PathHashSize()
 		peerPubKey := cand.pubkey
 		c.store.WriteAsync(func() {
-			_ = c.store.Contacts.UpdateOutPath(context.Background(), c.cfg.ID, peerPubKey, returnPath, hs)
+			if err := c.store.Contacts.UpdateOutPath(context.Background(), c.cfg.ID, peerPubKey, returnPath, hs); err != nil {
+				c.log.Error("failed to persist out_path", "error", err)
+			}
 		})
 
 		if extraType == meshcore.PayloadTypeAck && len(extraData) >= 4 {
@@ -279,7 +300,7 @@ func (c *Companion) registerPacketHandlers() {
 			Feat1:           appData.Feat1,
 			Feat2:           appData.Feat2,
 			OutPath:         pkt.Path,
-			OutPathHashSize: pkt.PathHashSize(),
+			OutPathHashSize: meshpath.AdvertHashSize(pkt),
 			LastAdvertTS:    adv.Timestamp,
 			LastSeen:        time.Now(),
 		}
@@ -821,18 +842,10 @@ func (c *Companion) recentDM(senderPubKey []byte, timestamp uint32, text string)
 	return seen
 }
 
-// learnedRoute returns the stored send-path to a peer: the live peer table first, then the contact
-// row it was persisted to, which is what survives a restart (hydratePeerTables deliberately leaves
-// the table's OutPath nil so a route is never assumed). The table wins because every writer sets it
-// synchronously and the row through WriteAsync, so the row is never the fresher of the two but does
-// lag a just-learned path — long enough for a DM arriving right behind a PATH to be sent down the
-// route we have already superseded. ok is false when no route is known (flood).
+// learnedRoute is the peer's learned send-path, which hydratePeerTables seeds from the contact row at start; ok is false when none is known (flood).
 func (c *Companion) learnedRoute(pubkey []byte) ([]byte, uint8, bool) {
 	if p := c.knownPeer(pubkey); p != nil && p.OutPath != nil {
 		return p.OutPath, max(p.OutPathHashSize, 1), true
-	}
-	if ct, err := c.store.Contacts.Get(c.runCtx, c.cfg.ID, pubkey); err == nil && ct != nil && ct.OutPath != nil {
-		return ct.OutPath, max(ct.OutPathHashSize, 1), true
 	}
 	return nil, 0, false
 }

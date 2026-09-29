@@ -15,6 +15,7 @@ import (
 	meshcore "github.com/meshcore-go/meshcore-go"
 	"github.com/meshcore-go/meshcore-go/node"
 
+	"github.com/meshcore-go/OwlShack/internal/client/repeater"
 	"github.com/meshcore-go/OwlShack/internal/config"
 	"github.com/meshcore-go/OwlShack/internal/modem"
 	"github.com/meshcore-go/OwlShack/internal/sensor"
@@ -332,7 +333,9 @@ func hashSizeCompanion(t *testing.T) (*Companion, *recordingRadio, meshcore.Loca
 	t.Cleanup(func() { st.Close() })
 	self := meshcore.NewLocalIdentityFromSeed([32]byte{1})
 	friend := meshcore.NewLocalIdentityFromSeed([32]byte{2})
-	comp := store.Companion{Name: "home"}
+	two := 2
+	// The stored row carries the size too, as it does on a real node, so a contact added now takes it.
+	comp := store.Companion{Name: "home", PathHashSize: &two}
 	st.WriteSync(func() {
 		if err = st.Companions.Create(ctx, &comp); err == nil {
 			err = st.Contacts.Add(ctx, comp.ID, friend.PublicKeyBytes(), "friend", "CHAT")
@@ -344,7 +347,6 @@ func hashSizeCompanion(t *testing.T) (*Companion, *recordingRadio, meshcore.Loca
 	radio := &recordingRadio{}
 	n := node.New(self, radio)
 	t.Cleanup(n.Stop)
-	two := 2
 	c := telemetryCompanion(t, config.CompanionConfig{
 		ID: comp.ID, PathHashSize: &two,
 		TelemetryBase: mode(config.TelemetryContacts),
@@ -370,8 +372,8 @@ func floodHashSize(t *testing.T, radio *recordingRadio) int {
 	return int(pkt.PathHashSize())
 }
 
-// Both of a reply's floods take the companion's own hash size, as the firmware's sendFloodScoped does, or relays past a one-byte hop leave it short.
-func TestHandleReq_FloodsAtTheCompanionsHashSize(t *testing.T) {
+// A reply with no route back floods at the contact's bytes per hop, and a path return at the companion's (sendFloodScoped); both are 2 here.
+func TestHandleReq_RepliesFloodAtTwoBytes(t *testing.T) {
 	c, radio, self, friend := hashSizeCompanion(t)
 	secret, _ := friend.SharedSecret(self.Identity)
 	enc, err := meshcore.EncryptThenMAC(secret, []byte{7, 0, 0, 0, reqTypeGetTelemetryData, 0})
@@ -390,13 +392,13 @@ func TestHandleReq_FloodsAtTheCompanionsHashSize(t *testing.T) {
 	} {
 		c.handleReq(req)
 		if hs := floodHashSize(t, radio); hs != 2 {
-			t.Errorf("%s request: the reply flooded with %d-byte hashes, want the companion's 2", name, hs)
+			t.Errorf("%s request: the reply flooded with %d-byte hashes, want 2", name, hs)
 		}
 	}
 }
 
-// A DM's ACK floods the same way when there is no route back, and rides a path return when the DM was flooded.
-func TestSendDMAck_FloodsAtTheCompanionsHashSize(t *testing.T) {
+// A DM's ACK floods at the contact's bytes per hop with no route back, and rides a path return when the DM was flooded.
+func TestSendDMAck_FloodsAtTwoBytes(t *testing.T) {
 	c, radio, self, friend := hashSizeCompanion(t)
 	secret, _ := friend.SharedSecret(self.Identity)
 	ack := []byte{1, 2, 3, 4, 0, 9}
@@ -409,8 +411,70 @@ func TestSendDMAck_FloodsAtTheCompanionsHashSize(t *testing.T) {
 		}
 		c.sendDMAck(dm, friend.PublicKeyBytes(), secret, ack)
 		if hs := floodHashSize(t, radio); hs != 2 {
-			t.Errorf("%s DM: the ACK flooded with %d-byte hashes, want the companion's 2", name, hs)
+			t.Errorf("%s DM: the ACK flooded with %d-byte hashes, want 2", name, hs)
 		}
+	}
+}
+
+// A contact's own bytes per hop, not the companion's, frames an ACK and a DM with no route back.
+func TestContactHashSize_FramesACKsAndDMs(t *testing.T) {
+	c, radio, self, friend := hashSizeCompanion(t)
+	secret, _ := friend.SharedSecret(self.Identity)
+	var err error
+	c.store.WriteSync(func() {
+		err = c.store.Contacts.SetRoute(c.runCtx, c.cfg.ID, friend.PublicKeyBytes(), nil, 3)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.sendDMAck(&meshcore.Packet{Header: meshcore.MakeHeader(meshcore.RouteTypeDirect, meshcore.PayloadTypeTxtMsg, 0)}, friend.PublicKeyBytes(), secret, []byte{1, 2, 3, 4})
+	if hs := floodHashSize(t, radio); hs != 3 {
+		t.Errorf("the ACK flooded with %d-byte hashes, want the contact's 3", hs)
+	}
+	c.repeaters = repeater.NewClient(c.node, c.store, c.cfg.ID, c.log, nil, c.pathHashSize) // owns the timestamp counter DMs share
+	if err := c.SendContactMessage(hex.EncodeToString(friend.PublicKeyBytes()), "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if hs := floodHashSize(t, radio); hs != 3 {
+		t.Errorf("the DM flooded with %d-byte hashes, want the contact's 3", hs)
+	}
+}
+
+// A node that is not a contact has no size of its own, so its ACK floods at the companion's.
+func TestBytesPerHop_ANonContactGetsTheCompanionsOwn(t *testing.T) {
+	c, radio, self, _ := hashSizeCompanion(t)
+	stranger := meshcore.NewLocalIdentityFromSeed([32]byte{9})
+	secret, _ := stranger.SharedSecret(self.Identity)
+	c.sendDMAck(&meshcore.Packet{Header: meshcore.MakeHeader(meshcore.RouteTypeDirect, meshcore.PayloadTypeTxtMsg, 0)}, stranger.PublicKeyBytes(), secret, []byte{1, 2, 3, 4})
+	if hs := floodHashSize(t, radio); hs != 2 {
+		t.Errorf("a stranger's ACK flooded with %d-byte hashes, want the companion's 2", hs)
+	}
+}
+
+// A 0-hop route has no hashes to carry a size, so the length byte takes the contact's.
+func TestSendDMAck_ZeroHopCarriesTheContactsSize(t *testing.T) {
+	c, radio, self, friend := hashSizeCompanion(t)
+	secret, _ := friend.SharedSecret(self.Identity)
+	var err error
+	c.store.WriteSync(func() {
+		err = c.store.Contacts.SetRoute(c.runCtx, c.cfg.ID, friend.PublicKeyBytes(), []byte{}, 3)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.node.Peers().Insert(&node.Peer{Identity: friend.Identity, Name: "friend"})
+	c.node.Peers().SetOutPath(friend.PublicKey(), []byte{}, 1)
+	c.sendDMAck(&meshcore.Packet{Header: meshcore.MakeHeader(meshcore.RouteTypeDirect, meshcore.PayloadTypeTxtMsg, 0)}, friend.PublicKeyBytes(), secret, []byte{1, 2, 3, 4})
+	sent := radio.take()
+	if len(sent) != 1 {
+		t.Fatalf("%d packets sent, want one", len(sent))
+	}
+	pkt, err := meshcore.PacketFromBytes(sent[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pkt.IsRouteDirect() || pkt.PathLength != 0x80 {
+		t.Errorf("sent as 0x%02x with length byte 0x%02x, want direct at 0x80 (3 bytes, 0 hops)", pkt.RouteType(), pkt.PathLength)
 	}
 }
 

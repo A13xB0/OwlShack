@@ -42,15 +42,16 @@ type CompanionLookup func(name string) (MessageSender, DMSender, bool)
 type CompanionChannelMutator func(name string) (adder ChannelAdder, remover ChannelRemover, ok bool)
 
 type RepeaterOps struct {
-	Login        func(pubkeyHex, password string) (any, error)
-	RoomLogin    func(pubkeyHex, password string, syncSince uint32) (any, error)
-	StatusReq    func(pubkeyHex string) (any, error)
-	CLI          func(pubkeyHex, command string) (string, error)
-	Session      func(pubkeyHex string) any
-	Logout       func(pubkeyHex string)
-	PathGet      func(pubkeyHex string) (any, error)
-	PathReset    func(pubkeyHex string) error
-	PathSet      func(pubkeyHex, pathHex string, pathHashSize int) error
+	Login     func(pubkeyHex, password string) (any, error)
+	RoomLogin func(pubkeyHex, password string, syncSince uint32) (any, error)
+	StatusReq func(pubkeyHex string) (any, error)
+	CLI       func(pubkeyHex, command string) (string, error)
+	Session   func(pubkeyHex string) any
+	Logout    func(pubkeyHex string)
+	PathGet   func(pubkeyHex string) (any, error)
+	PathReset func(pubkeyHex string) error
+	// PathSet takes a nil path to flood and an empty one for a direct neighbour.
+	PathSet      func(pubkeyHex string, path []byte, pathHashSize uint8) error
 	NeighborsReq func(pubkeyHex string, count uint8, offset uint16) (any, error)
 	OwnerInfoReq func(pubkeyHex string) (any, error)
 	TelemetryReq func(pubkeyHex string) (any, error)
@@ -187,6 +188,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/companions/{name}/channels/{channel}/key", s.handleGetChannelKey)
 	s.mux.HandleFunc("GET /api/companions/{name}/contacts/{pubkey}/path", s.handleGetContactPath)
 	s.mux.HandleFunc("DELETE /api/companions/{name}/contacts/{pubkey}/path", s.handleResetContactPath)
+	s.mux.HandleFunc("PUT /api/companions/{name}/contacts/{pubkey}/path", s.handleRepeaterPathSet)
 	s.mux.HandleFunc("POST /api/companions/{name}/trace", s.handleSendTrace)
 	s.mux.HandleFunc("POST /api/companions/{name}/advert", s.handleSendAdvert)
 	s.mux.HandleFunc("POST /api/companions/{name}/repeaters/{pubkey}/login", s.handleRepeaterLogin)

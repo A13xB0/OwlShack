@@ -16,7 +16,6 @@ import (
 	"unicode"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
-	"github.com/meshcore-go/meshcore-go/node"
 
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
@@ -29,8 +28,9 @@ type contactJSON struct {
 	Lon             int32                 `json:"lon"`
 	Feat1           uint16                `json:"feat1"`
 	Feat2           uint16                `json:"feat2"`
-	OutPath         string                `json:"outPath,omitempty"`
+	OutPath         *string               `json:"outPath"` // null = unknown (flood), "" = direct
 	OutPathHashSize uint8                 `json:"outPathHashSize"`
+	PathHashSize    uint8                 `json:"pathHashSize"` // bytes per hop for everything sent
 	LastSeen        string                `json:"lastSeen,omitempty"`
 	LastAdvertTS    uint32                `json:"lastAdvertTs"`
 	AddedAt         string                `json:"addedAt"`
@@ -51,13 +51,22 @@ func (s *Server) contactToJSON(c *store.Contact) contactJSON {
 		Lon:             c.Lon,
 		Feat1:           c.Feat1,
 		Feat2:           c.Feat2,
-		OutPath:         hex.EncodeToString(c.OutPath),
+		OutPath:         outPathHex(c.OutPath),
 		OutPathHashSize: c.OutPathHashSize,
+		PathHashSize:    c.PathHashSize,
 		LastSeen:        lastSeen,
 		LastAdvertTS:    c.LastAdvertTS,
 		AddedAt:         c.AddedAt.UTC().Format(time.RFC3339),
 		Metadata:        c.Metadata,
 	}
+}
+
+func outPathHex(p []byte) *string {
+	if p == nil {
+		return nil
+	}
+	h := hex.EncodeToString(p)
+	return &h
 }
 
 // validPeerType mirrors meshcore-go's advert type-string mapping.
@@ -195,7 +204,7 @@ func (s *Server) handleAddContact(w http.ResponseWriter, r *http.Request) {
 		if addErr = s.store.Contacts.Add(r.Context(), cid, pubkey, storeName, storeType); addErr != nil {
 			return
 		}
-		// Backfill from the heard peer so location/path/feat don't wait for the next advert.
+		// Backfill from the heard peer so location/feat don't wait for the next advert; a send-path is only ever learned (BaseChatMesh.cpp:111).
 		if existing != nil {
 			hasLoc := existing.HasLocation()
 			_ = s.store.Contacts.RefreshFromAdvert(
@@ -203,13 +212,6 @@ func (s *Server) handleAddContact(w http.ResponseWriter, r *http.Request) {
 				existing.Lat, existing.Lon, existing.Feat1, existing.Feat2,
 				existing.LastSeen, existing.LastAdvertTS, hasLoc,
 			)
-			if len(existing.OutPath) > 0 {
-				hs := existing.OutPathHashSize
-				if hs == 0 {
-					hs = 1
-				}
-				_ = s.store.Contacts.UpdateOutPath(r.Context(), cid, pubkey, node.ReverseHops(existing.OutPath, int(hs)), hs)
-			}
 		}
 	})
 	if addErr != nil {

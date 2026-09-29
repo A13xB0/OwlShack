@@ -437,6 +437,7 @@ PATCH /api/companions/{name}/channels/{channel}               { name }
 
 GET  /api/companions/{name}/contacts/{pubkey}/path
 DELETE /api/companions/{name}/contacts/{pubkey}/path
+PUT  /api/companions/{name}/contacts/{pubkey}/path             same body as the repeaters PUT below
 
 GET  /api/companions/{name}/messages?channel=&limit=&afterId=
 POST /api/companions/{name}/messages                         { channel, text }
@@ -450,7 +451,8 @@ POST /api/companions/{name}/repeaters/{pubkey}/login         { password }
 GET  /api/companions/{name}/repeaters/{pubkey}/status
 POST /api/companions/{name}/repeaters/{pubkey}/cli           { command }
 GET|DELETE /api/companions/{name}/repeaters/{pubkey}/session
-GET|DELETE|PUT /api/companions/{name}/repeaters/{pubkey}/path
+GET|DELETE /api/companions/{name}/repeaters/{pubkey}/path       GET: { outPath, hops, hasPath, directNeighbor, pathHashSize (the route's), bytesPerHop }
+PUT  /api/companions/{name}/repeaters/{pubkey}/path            { route: flood|direct|path, path?, pathHashSize }
 
 POST /api/companions/{name}/rooms/{pubkey}/login             { password, syncSince? }
 GET|DELETE /api/companions/{name}/rooms/{pubkey}/session
