@@ -7,6 +7,13 @@ top until tagged.
 
 Schema `user_version` 21: moves an openHop serial connection's baud rate to 921600.
 
+### Changed
+
+- **The radio presets match MeshCore's current list.** New: Canada, USA, USA - Southern
+  California and Netherlands (Limburg). USA/Canada (Recommended) is gone, since USA and Canada now
+  have their own. Australia (Narrow) is CR 7, and Czech Republic (Narrow) shows its 2-byte path
+  hash. Each release now ships the list as it stands on the day.
+
 ### Fixed
 
 - **openHop Modems over serial connect at 921600 baud.** The firmware runs its serial link at 921600
