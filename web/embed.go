@@ -1,5 +1,7 @@
 package web
 
+//go:generate go run ./presetsgen frontend/src/data/radio-presets.json
+
 import (
 	"embed"
 	"io/fs"

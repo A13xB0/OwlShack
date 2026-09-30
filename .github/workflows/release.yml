@@ -58,9 +58,24 @@ jobs:
           cat migrations-test.txt
           grep -q -- '--- PASS: TestMigrations_ShippedFilesAreFrozen' migrations-test.txt
 
+  # A tag must ship the community presets as they stand; the feed being down only warns.
+  presets:
+    name: Radio Presets Current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: radio-presets.json matches the MeshCore feed
+        run: go run ./web/presetsgen -check web/frontend/src/data/radio-presets.json
+
   build:
     name: Build Binaries
-    needs: [frontend, migrations]
+    needs: [frontend, migrations, presets]
     runs-on: ubuntu-latest
     strategy:
       matrix:
