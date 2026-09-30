@@ -5,8 +5,15 @@ top until tagged.
 
 ## Unreleased
 
+Schema `user_version` 21: moves an openHop serial connection's baud rate to 921600.
+
 ### Fixed
 
+- **openHop Modems over serial connect at 921600 baud.** The firmware runs its serial link at 921600
+  on every board, but OwlShack opened it at 115200. A board with native USB did not mind, but one
+  behind a USB-serial chip, such as a Heltec V3, never answered. Choosing openHop over serial now
+  sets 921600 and shows it, a saved connection is moved to it on upgrade, and any other rate is
+  refused.
 - **A repeater's type badge no longer sits under its Copy button.** On a phone, a long name pushed
   the badge across the button. The badge now wraps below the name, and a name too long for the
   line is cut short, with the full name on hover.

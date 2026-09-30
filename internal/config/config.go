@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/meshcore-go/meshcore-go/hardware/openhop"
 	"github.com/meshcore-go/meshcore-go/node"
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
@@ -250,6 +251,10 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.BaudRate == nil {
 		c.BaudRate = defaults.BaudRate
+		if OpenhopSerial(*c.Connection) {
+			b := openhop.DefaultBaudRate
+			c.BaudRate = &b
+		}
 	}
 	if c.Freq == nil {
 		c.Freq = defaults.Freq
