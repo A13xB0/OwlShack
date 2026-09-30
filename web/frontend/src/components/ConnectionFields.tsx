@@ -25,6 +25,9 @@ const TRANSPORTS = [
 const SPI_PORTS = ["SPI0.0", "SPI0.1", "SPI1.0", "SPI1.1", "SPI1.2"];
 
 const DEFAULT_SERIAL = "/dev/ttyACM0";
+const KISS_BAUD = "115200";
+// openHop firmware runs its serial link at this rate on every board, and at no other.
+const OPENHOP_BAUD = "921600";
 
 export function connectionScheme(c: string): "serial" | "tcp" | "spi" | "openhop" {
   if (c.startsWith("tcp://")) return "tcp";
@@ -189,6 +192,7 @@ export function ConnectionFields({
 
   const pickBackend = (v: string) => {
     setConnectionType(v);
+    if (v !== "openhop" && baudRate === OPENHOP_BAUD) setBaudRate(KISS_BAUD);
     if (v === "spi") {
       const pick = board ?? defaultBoard(boards);
       if (pick && !spiBoard) setSpiBoard(pick.name);
@@ -204,8 +208,10 @@ export function ConnectionFields({
 
   const pickTransport = (v: string) => {
     const dev = ports[0]?.path ?? DEFAULT_SERIAL;
-    if (openhop) setConnection(v === "tcp" ? "openhop://" : `openhop://${dev}`);
-    else if (v === "tcp") setConnection("tcp://");
+    if (openhop) {
+      setConnection(v === "tcp" ? "openhop://" : `openhop://${dev}`);
+      if (v === "serial") setBaudRate(OPENHOP_BAUD);
+    } else if (v === "tcp") setConnection("tcp://");
     else setConnection(`serial://${dev}`);
   };
 
@@ -320,12 +326,22 @@ export function ConnectionFields({
                   hint="No serial devices detected. Plug the modem in, or type its path."
                 />
               )}
-              <TextField
-                label="Baud rate"
-                value={baudRate}
-                onChange={setBaudRate}
-                placeholder="115200"
-              />
+              {openhop ? (
+                <TextField
+                  label="Baud rate"
+                  value={baudRate}
+                  onChange={setBaudRate}
+                  disabled
+                  hint="openHop Modem firmware runs its serial link at 921600 on every board."
+                />
+              ) : (
+                <TextField
+                  label="Baud rate"
+                  value={baudRate}
+                  onChange={setBaudRate}
+                  placeholder={KISS_BAUD}
+                />
+              )}
             </>
           )}
         </>

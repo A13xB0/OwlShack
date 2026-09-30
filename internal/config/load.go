@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
+	"github.com/meshcore-go/meshcore-go/hardware/openhop"
 	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -104,6 +105,12 @@ func ParseConnection(conn string) (scheme, addr string, ok bool) {
 	return "", "", false
 }
 
+// OpenhopSerial reports whether conn drives an openHop modem over serial, whose firmware runs the link at openhop.DefaultBaudRate only.
+func OpenhopSerial(conn string) bool {
+	scheme, addr, _ := ParseConnection(conn)
+	return scheme == "openhop" && strings.HasPrefix(addr, "/")
+}
+
 // Validate checks field ranges; nil pointers mean "use default" and are skipped.
 func (c *Config) Validate() error {
 	if c.Connection != nil {
@@ -119,6 +126,9 @@ func (c *Config) Validate() error {
 
 	if c.BaudRate != nil && *c.BaudRate <= 0 {
 		return fmt.Errorf("baudRate must be positive")
+	}
+	if c.Connection != nil && OpenhopSerial(*c.Connection) && c.BaudRate != nil && *c.BaudRate != openhop.DefaultBaudRate {
+		return fmt.Errorf("baudRate must be %d for an openHop modem over serial: its firmware runs at no other rate", openhop.DefaultBaudRate)
 	}
 
 	if c.Freq != nil && (*c.Freq < 100 || *c.Freq > 1000) {
