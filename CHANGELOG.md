@@ -3,9 +3,13 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
-## Unreleased
+## v1.5.0-rc.2 - 2026-09-30
 
-Schema `user_version` 21: moves an openHop serial connection's baud rate to 921600.
+Baseline `v1.5.0-rc.1`. openHop Modems behind a USB-serial chip, such as a Heltec V3, now connect
+over serial; the radio presets are current; and a repeater's badge no longer covers its Copy
+button on a phone.
+
+Schema `user_version` 20 to 21: moves an openHop serial connection's baud rate to 921600.
 
 ### Changed
 
