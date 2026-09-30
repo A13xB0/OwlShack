@@ -90,14 +90,17 @@ and a one-line summary. The release workflow's awk takes the section from the
 line matching `^## <tag>` to the next `## ` as the release body, so run it locally
 against the tag before tagging.
 
-**Releasing:** a `release/vX` branch carrying the changelog heading, the
-`migrations.sum` record and a `go generate ./web` of the radio presets goes into
-`dev` by PR, then `dev` into `main` by PR, then an annotated tag on `main`'s
-merge commit starts the release workflow. The workflow fails a tag whose presets
-differ from the MeshCore feed (a feed that is down or unusable only warns). After
-every release, merge `main` back into `dev` by PR with a merge commit, not a
-squash: the tag sits on a commit only `main` has, so without it `build.sh`'s
-`git describe` stamps dev builds with the previous tag.
+**Releasing: `main` is always stable.** Either way, a `release/vX` branch
+carrying the changelog heading, the `migrations.sum` record and a
+`go generate ./web` of the radio presets goes into `dev` by PR, and an annotated
+tag starts the release workflow, which fails a tag whose presets differ from the
+MeshCore feed (a feed that is down or unusable only warns).
+- **A release candidate** (`vX.Y.Z-rc.N`) is tagged on that PR's merge commit on
+  `dev`. `main` does not move, and there is nothing to merge back.
+- **A stable release** then takes `dev` into `main` by PR, and the tag goes on
+  `main`'s merge commit. Afterwards, merge `main` back into `dev` by PR with a
+  merge commit, not a squash: the tag sits on a commit only `main` has, so
+  without it `build.sh`'s `git describe` stamps dev builds with the previous tag.
 
 **Every timestamp on outgoing admin traffic comes from
 `Client.UniqueTimestamp()`** (the firmware's `getCurrentTimeUnique()`), never
