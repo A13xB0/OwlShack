@@ -46,7 +46,7 @@ type LinkStats struct {
 	// HwDecodeErrors is a malformed SETHARDWARE frame, i.e. the battery/temp/noise-floor channel, not a mesh packet.
 	HwDecodeErrors       *uint64
 	InboundDroppedOldest *uint64
-	// RxMetaTimeouts: metadata never arrived. RxMetaMisattributed: matched to the wrong packet, so its SNR/RSSI is wrong.
+	// Both count signal reports lost on the link, whose packet goes out with no SNR/RSSI: a timeout waited 1 s, a misattribution was caught by the next frame.
 	RxMetaTimeouts      *uint64
 	RxMetaMisattributed *uint64
 	HwErrors            *uint64 // HW_RESP_ERROR frames received

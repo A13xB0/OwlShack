@@ -218,7 +218,7 @@ export function RadioHealthPage() {
           <StatTile label="TX outcome lost" value={opt(status.txOutcomeLost)} band={faultBand(status.txOutcomeLost ?? 0)} />
           <StatTile label="Signal meta timeouts" value={opt(status.rxMetaTimeouts)} band={faultBand(status.rxMetaTimeouts ?? 0)} />
           <StatTile
-            label="Signal meta misattributed"
+            label="Signal meta unmatched"
             value={opt(status.rxMetaMisattributed)}
             band={faultBand(status.rxMetaMisattributed ?? 0)}
           />

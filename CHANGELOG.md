@@ -13,6 +13,10 @@ Schema `user_version` 21: moves an openHop serial connection's baud rate to 9216
   California and Netherlands (Limburg). USA/Canada (Recommended) is gone, since USA and Canada now
   have their own. Australia (Narrow) is CR 7, and Czech Republic (Narrow) shows its 2-byte path
   hash. Each release now ships the list as it stands on the day.
+- **"Signal meta misattributed" on the Radio page is now "Signal meta unmatched".** It counts
+  signal reports lost between a KISS board and OwlShack. The packet goes out with no SNR or RSSI,
+  so the count never meant a wrong reading was published. The MQTT key `rx_meta_misattributed` is
+  unchanged.
 
 ### Fixed
 
