@@ -3,6 +3,20 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
+## Unreleased
+
+### Added
+
+- **A message's reception paths can be shown on the map.** In View paths, open a path and choose
+  On map to plot the repeaters it came through, as the Peers page already does for a peer's path.
+  The same works for the echoes of a message you sent, drawn as the loop from you and back.
+
+### Fixed
+
+- **A message's path names the same repeaters as the map.** Where several nodes share a hop's
+  hash, View paths and Echoes named whichever came first, which could be an old repeater or even
+  a chat node. They now name the repeater heard most recently, as the map and the Peers page do.
+
 ## v1.5.0-rc.2 - 2026-09-30
 
 Baseline `v1.5.0-rc.1`. openHop Modems behind a USB-serial chip, such as a Heltec V3, now connect
