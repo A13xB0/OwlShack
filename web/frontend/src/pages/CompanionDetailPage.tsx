@@ -1460,7 +1460,7 @@ function CompanionChat() {
               {threadCount === 1 ? "" : "s"}
             </span>
           }
-          trailing={<CompanionActions companion={companionRef} />}
+          actions={<CompanionActions companion={companionRef} />}
         />
       </div>
 
@@ -1616,7 +1616,7 @@ function CompanionChat() {
                   </div>
                   <div className="text-mono-xs text-muted-foreground">
                     {activeConversation.type === "channel"
-                      ? "broadcast channel"
+                      ? "channel"
                       : isRoom
                         ? roomLoggedIn
                           ? `room server · ${roomSession?.role ?? "joined"}`
