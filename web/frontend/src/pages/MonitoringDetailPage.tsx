@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { ExternalLink, MoreHorizontal, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { BackLink } from "@/components/BackLink";
 import { PageHeader } from "@/components/PageHeader";
-import { ConnectionPill } from "@/components/StatusIndicator";
 import { NodeStatGrid } from "@/components/NodeStatTiles";
 import { MetricChart, type SeriesPoint } from "@/components/MetricChart";
 import { TrackMap, type TrackPoint } from "@/components/TrackMap";
 import { MonitoringSettings } from "@/components/MonitoringSettings";
 import { LinkMonitorSettings } from "@/components/LinkMonitorSettings";
-import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { pollNode } from "@/lib/nodesApi";
@@ -214,7 +220,7 @@ export function MonitoringDetailPage() {
     [pubkey],
   );
 
-  const { connected, pending } = useWebSocket(["metrics"], onWs);
+  useWebSocket(["metrics"], onWs);
 
   const { heroMetrics, gridMetrics } = useMemo(() => {
     const avail = new Set(displayAvailable);
@@ -270,58 +276,50 @@ export function MonitoringDetailPage() {
         }
         actions={
           <div className="flex items-center gap-2">
-            <ConnectionPill connected={connected} pending={pending} />
             <RangeSelector range={range} onChange={setRange} />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handlePoll}
-              disabled={polling}
-              title="Poll this node now"
-              className="h-auto rounded-none py-1 font-mono text-[10px] uppercase tracking-[0.12em]"
-            >
-              <RefreshCw className={cn("size-3", polling && "animate-spin")} />
-              <span className="hidden sm:inline">
+            <div className="hidden sm:flex items-center gap-2">
+              <HeaderButton icon={RefreshCw} busy={polling} onClick={handlePoll} disabled={polling} title="Poll this node now">
                 {polling ? "polling" : "poll"}
-              </span>
-            </Button>
-            {node?.companionId && (
-              <>
-                {node.kind !== "link" && (
-                  <Button
-                    asChild
-                    variant="outline"
-                    size="sm"
-                    className="h-auto rounded-none py-1 font-mono text-[10px] uppercase tracking-[0.12em]"
-                  >
-                    <Link
-                      to={contactDetailPath(
-                        node.companionId,
-                        pubkey,
-                        node.kind === "repeater",
-                      )}
-                    >
-                      <ExternalLink className="size-3" />
-                      <span className="hidden sm:inline">
-                        {node.kind === "repeater" ? "repeater" : "contact"}
-                      </span>
+              </HeaderButton>
+              {node?.companionId && node.kind !== "link" && (
+                <HeaderButton icon={ExternalLink} to={contactDetailPath(node.companionId, pubkey, node.kind === "repeater")}>
+                  {node.kind === "repeater" ? "repeater" : "contact"}
+                </HeaderButton>
+              )}
+              {node?.companionId && (
+                <HeaderButton icon={SlidersHorizontal} active={showSettings} onClick={() => setShowSettings((s) => !s)}>
+                  configure
+                </HeaderButton>
+              )}
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <HeaderButton icon={MoreHorizontal} iconOnly className="sm:hidden">
+                  Node actions
+                </HeaderButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-none border-border w-48">
+                <DropdownMenuItem onClick={handlePoll} disabled={polling} className="font-mono text-xs uppercase tracking-[0.08em]">
+                  <RefreshCw className={cn("size-3.5", polling && "animate-spin")} /> {polling ? "polling" : "poll now"}
+                </DropdownMenuItem>
+                {node?.companionId && node.kind !== "link" && (
+                  <DropdownMenuItem asChild className="font-mono text-xs uppercase tracking-[0.08em]">
+                    <Link to={contactDetailPath(node.companionId, pubkey, node.kind === "repeater")}>
+                      <ExternalLink className="size-3.5" /> {node.kind === "repeater" ? "repeater" : "contact"}
                     </Link>
-                  </Button>
+                  </DropdownMenuItem>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowSettings((s) => !s)}
-                  className={cn(
-                    "h-auto rounded-none py-1 font-mono text-[10px] uppercase tracking-[0.12em]",
-                    showSettings && "border-primary text-primary",
-                  )}
-                >
-                  <SlidersHorizontal className="size-3" />
-                  <span className="hidden sm:inline">configure</span>
-                </Button>
-              </>
-            )}
+                {node?.companionId && (
+                  <DropdownMenuCheckboxItem
+                    checked={showSettings}
+                    onCheckedChange={(v) => setShowSettings(v === true)}
+                    className="font-mono text-xs uppercase tracking-[0.08em]"
+                  >
+                    configure
+                  </DropdownMenuCheckboxItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         }
       />
@@ -463,7 +461,7 @@ function RangeSelector({
           type="button"
           onClick={() => onChange(r)}
           className={cn(
-            "px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest bg-card transition-colors",
+            "h-6.5 px-2.5 font-mono text-[11px] uppercase tracking-[0.12em] bg-card transition-colors",
             range.key === r.key
               ? "text-primary bg-primary/10"
               : "text-muted-foreground hover:text-foreground",

@@ -22,8 +22,10 @@ function uptime(secs: number): string {
   return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-// The sidebar's system line, read from /api/health, the same answer an external monitor gets.
-export function SystemStatus() {
+export type SystemState = "nominal" | "checking" | "degraded" | "offline";
+
+// Read once in the shell, from /api/health, the same answer an external monitor gets; the status line and the logo dot both show it.
+export function useSystemHealth() {
   const { connected, pending } = useWebSocket([], undefined, false);
   const [health, setHealth] = useState<Health | null>(null);
   const [failed, setFailed] = useState(false);
@@ -55,15 +57,37 @@ export function SystemStatus() {
   }, [connected, check]);
 
   const offline = failed || (!pending && !connected);
-  const count = health?.problems.length ?? 0;
-  const state = offline ? "offline" : !health ? "checking" : health.status === "ok" ? "nominal" : "degraded";
-  // Offline matches the LIVE pill's destructive, so the sidebar and the page header agree about the socket.
-  const tone = {
-    nominal: "text-success",
-    checking: "text-muted-foreground",
-    degraded: "text-warning",
-    offline: "text-destructive",
-  }[state];
+  const state: SystemState = offline ? "offline" : !health ? "checking" : health.status === "ok" ? "nominal" : "degraded";
+  return { state, health, offline, count: health?.problems.length ?? 0 };
+}
+
+const TEXT_TONE: Record<SystemState, string> = {
+  nominal: "text-success",
+  checking: "text-muted-foreground",
+  degraded: "text-warning",
+  offline: "text-destructive",
+};
+
+const DOT_TONE: Record<SystemState, string> = {
+  nominal: "bg-success scan-pulse",
+  checking: "bg-muted-foreground",
+  degraded: "bg-warning scan-pulse",
+  offline: "bg-destructive",
+};
+
+// The same state as the status line, for where that line is hidden: a collapsed sidebar shows only the logo.
+export function SystemStatusDot({ state, className }: { state: SystemState; className?: string }) {
+  return (
+    <span className={cn("size-1.5 rounded-full", DOT_TONE[state], className)}>
+      <span className="sr-only">System {state}</span>
+    </span>
+  );
+}
+
+// The sidebar's system line.
+export function SystemStatus({ status }: { status: ReturnType<typeof useSystemHealth> }) {
+  const { state, health, offline, count } = status;
+  const tone = TEXT_TONE[state];
 
   return (
     <Popover>

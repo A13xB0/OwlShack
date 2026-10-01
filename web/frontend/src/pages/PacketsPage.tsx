@@ -7,6 +7,7 @@ import { useResume } from "@/lib/resume";
 import { HopPath, type PathPeer } from "@/components/HopPath";
 import { mapPathHref } from "@/lib/linkPath";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadErrorAlert } from "@/components/LoadErrorAlert";
@@ -32,7 +33,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/PageHeader";
-import { ConnectionPill } from "@/components/StatusIndicator";
 import { snrTextClass } from "@/components/SignalStrength";
 import { formatDateTime, formatShortTime, truncate, truncateMid } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -214,7 +214,7 @@ export function PacketsPage() {
     [setPackets],
   );
 
-  const { connected, pending } = useWebSocket(["packets"], onWsMessage);
+  useWebSocket(["packets"], onWsMessage);
 
   // Pills come from the live buffer, so they stay stable while a search narrows results.
   const liveGroups = useMemo(() => buildGroups(livePackets), [livePackets]);
@@ -287,17 +287,9 @@ export function PacketsPage() {
           </span>
         }
         actions={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={reload}
-              className="h-7 gap-1.5 text-xs uppercase tracking-widest font-mono"
-            >
-              <RefreshCw className="size-3" /> reload
-            </Button>
-            <ConnectionPill connected={connected} pending={pending} />
-          </div>
+          <HeaderButton icon={RefreshCw} busy={loading} onClick={reload}>
+            {loading ? "refreshing" : "refresh"}
+          </HeaderButton>
         }
       />
 

@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { BackLink } from "@/components/BackLink";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import {
   Dialog,
   DialogContent,
@@ -210,15 +211,9 @@ export function RepeatersListPage() {
             )
           }
           actions={
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setAddOpen(true)}
-              className="font-mono text-xs uppercase tracking-widest"
-            >
-              <Plus className="size-3.5" />
-              Add repeater
-            </Button>
+            <HeaderButton tone="primary" icon={Plus} onClick={() => setAddOpen(true)}>
+              add repeater
+            </HeaderButton>
           }
           className="mb-0"
         />

@@ -293,6 +293,11 @@
   .scan-pulse {
     animation: scan-pulse 1.4s ease-in-out infinite;
   }
+  @media (prefers-reduced-motion: reduce) {
+    .scan-pulse {
+      animation: none;
+    }
+  }
   /* The logo art is raster-backed, so it is masked rather than drawn: the SVG's alpha is the mark
      and the colour comes from the element, which keeps it on the theme in both light and dark. */
   .owl-mark {

@@ -26,7 +26,6 @@ import { PeerDetailSheet } from "@/components/PeerDetailSheet";
 import { usePeerDetailSheet } from "@/hooks/usePeerDetailSheet";
 import { isPeerDelete } from "@/lib/peerWs";
 import {
-  ConnectionPill,
   PEER_TYPE_HEX,
   PeerTypePill,
 } from "@/components/StatusIndicator";
@@ -94,7 +93,7 @@ export function DashboardPage() {
     });
   }, []);
 
-  const { connected, pending } = useWebSocket(["peers"], onWsMessage);
+  const { connected } = useWebSocket(["peers"], onWsMessage);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -162,7 +161,6 @@ export function DashboardPage() {
             </span>
           )
         }
-        trailing={<ConnectionPill connected={connected} pending={pending} />}
       />
 
       {loading && <DashboardSkeleton />}

@@ -14,6 +14,7 @@ import { SectionTitle } from "@/components/SectionTitle";
 import { InlineConfirm } from "@/components/InlineConfirm";
 import { SelectField, SwitchRow, TextField } from "@/components/ConfigFields";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -267,19 +268,9 @@ export function MqttPage() {
           )
         }
         actions={
-          <Button
-            size="sm"
-            onClick={saveFeed}
-            disabled={savingFeed || loading || !mqtt}
-            className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
-          >
-            {savingFeed ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Save className="size-3.5" />
-            )}
-            save
-          </Button>
+          <HeaderButton tone="primary" icon={Save} busy={savingFeed} onClick={saveFeed} disabled={savingFeed || loading || !mqtt}>
+            {savingFeed ? "saving" : "save"}
+          </HeaderButton>
         }
       />
 

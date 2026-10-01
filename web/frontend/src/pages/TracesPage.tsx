@@ -38,7 +38,6 @@ import { InlineConfirm } from "@/components/InlineConfirm";
 import { HopPicker, ModeToggle, type HopPeer } from "@/components/HopPicker";
 import { SignalTestStats } from "@/components/SignalTestStats";
 import { PageHeader } from "@/components/PageHeader";
-import { ConnectionPill } from "@/components/StatusIndicator";
 import { SignalStrength } from "@/components/SignalStrength";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -280,7 +279,7 @@ export function TracesPage() {
     [armTimeout],
   );
 
-  const { connected, pending } = useWebSocket(
+  useWebSocket(
     ["traces", "peers", "signaltest"],
     onWsMessage,
   );
@@ -573,7 +572,6 @@ export function TracesPage() {
             {peers.length} repeaters · {companions.length} companions
           </span>
         }
-        actions={<ConnectionPill connected={connected} pending={pending} />}
       />
 
       {loading && <TracesSkeleton />}

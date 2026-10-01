@@ -29,6 +29,10 @@ const buttonVariants = cva(
         "icon-xs": "size-6 rounded-md before:-inset-y-2 [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8 before:-inset-y-1",
         "icon-lg": "size-10",
+        // Every page-header action: 28px drawn, 40px to touch on a phone through the base before: area.
+        header:
+          "h-7 gap-1.5 rounded-none px-2.5 font-mono text-[11px] uppercase tracking-[0.12em] [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-header": "size-7 rounded-none [&_svg:not([class*='size-'])]:size-3.5",
       },
     },
     defaultVariants: {
