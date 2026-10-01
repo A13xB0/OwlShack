@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -192,6 +192,13 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
   const navigate = useNavigate();
   const isSensor = kind === "sensor";
   const isRoom = kind === "room";
+  const companionPath = `/companions/${encodeURIComponent(decodedName)}`;
+  const headerNav = [
+    kind === "repeater"
+      ? { to: `${companionPath}/repeaters`, label: "repeaters" }
+      : { to: `${companionPath}/contacts/${encodeURIComponent(decodedPubkey)}`, label: "contact" },
+    ...(isSensor ? [] : [{ to: companionPath, label: "messages" }]),
+  ];
 
   // The /repeaters/ path is type-agnostic; rooms have their own login, status and keep-alive under /rooms/.
   const apiBase = `/api/companions/${encodeURIComponent(decodedName)}/repeaters/${encodeURIComponent(decodedPubkey)}`;
@@ -449,18 +456,11 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
         }
         actions={
           <>
-            <HeaderNavChip
-              to={`/companions/${encodeURIComponent(decodedName)}/${kind === "repeater" ? "repeaters" : `contacts/${encodeURIComponent(decodedPubkey)}`}`}
-              label={kind === "repeater" ? "repeaters" : "contact"}
-              short={kind === "repeater" ? "rptrs" : "contact"}
-            />
-            {!isSensor && (
-              <HeaderNavChip
-                to={`/companions/${encodeURIComponent(decodedName)}`}
-                label="messages"
-                short="msgs"
-              />
-            )}
+            {headerNav.map((n) => (
+              <HeaderButton key={n.to} icon={ArrowLeft} to={n.to} className="hidden sm:inline-flex">
+                {n.label}
+              </HeaderButton>
+            ))}
             <PathBadge info={pathInfo} />
             {loggedIn && (
               <span
@@ -482,6 +482,14 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
                 </HeaderButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-sm">
+                {headerNav.map((n) => (
+                  <DropdownMenuItem key={n.to} asChild className="font-mono text-xs uppercase tracking-[0.08em] sm:hidden">
+                    <Link to={n.to}>
+                      <ArrowLeft className="size-3.5" /> {n.label}
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator className="sm:hidden" />
                 <DropdownMenuItem
                   onClick={() => setPathDialogOpen(true)}
                   className="font-mono text-xs uppercase tracking-[0.08em]"
@@ -712,23 +720,6 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
 }
 
 // The label shortens below sm so the chips plus the overflow menu stay on one line on a phone.
-function HeaderNavChip({
-  to,
-  label,
-  short,
-}: {
-  to: string;
-  label: string;
-  short: string;
-}) {
-  return (
-    <HeaderButton icon={ArrowLeft} to={to}>
-      <span className="sm:hidden">{short}</span>
-      <span className="hidden sm:inline">{label}</span>
-    </HeaderButton>
-  );
-}
-
 function PathBadge({ info }: { info: PathInfo | null }) {
   if (!info)
     return (
