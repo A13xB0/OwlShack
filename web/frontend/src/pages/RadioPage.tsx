@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Save } from "lucide-react";
+import { AlertTriangle, Save } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { LoadErrorAlert } from "@/components/LoadErrorAlert";
@@ -8,7 +8,7 @@ import { PATH_HASH_SIZE_OPTIONS, SelectField, TextField } from "@/components/Con
 import { BACKEND_LABELS, backendFor, ConnectionFields } from "@/components/ConnectionFields";
 import { RadioPresetSelect } from "@/components/RadioPresetSelect";
 import { BackupPanel } from "@/components/BackupPanel";
-import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiObject } from "@/hooks/useApiObject";
 import { setTiles, type MapDarkStyle, type MapProvider } from "@/lib/leaflet";
@@ -128,19 +128,9 @@ export function RadioPage() {
         eyebrow="system"
         title="Settings"
         actions={
-          <Button
-            size="sm"
-            onClick={onSave}
-            disabled={saving || loading || !settings}
-            className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
-          >
-            {saving ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Save className="size-3.5" />
-            )}
-            save
-          </Button>
+          <HeaderButton tone="primary" icon={Save} busy={saving} onClick={onSave} disabled={saving || loading || !settings}>
+            {saving ? "saving" : "save"}
+          </HeaderButton>
         }
       />
 

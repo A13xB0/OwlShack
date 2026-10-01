@@ -5,6 +5,7 @@ import { Hash, Plus, Radio } from "lucide-react";
 import { toast } from "sonner";
 import { BackLink } from "@/components/BackLink";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiList } from "@/hooks/useApiList";
 import { InlineConfirm } from "@/components/InlineConfirm";
@@ -88,15 +89,9 @@ export function ChannelsPage() {
             )
           }
           actions={
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setDialogOpen(true)}
-              className="font-mono text-xs uppercase tracking-widest"
-            >
-              <Plus className="size-3.5" />
-              Add channel
-            </Button>
+            <HeaderButton tone="primary" icon={Plus} onClick={() => setDialogOpen(true)}>
+              add channel
+            </HeaderButton>
           }
           className="mb-0"
         />

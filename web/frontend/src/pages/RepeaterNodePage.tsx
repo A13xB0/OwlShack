@@ -26,7 +26,7 @@ import { LoadErrorAlert } from "@/components/LoadErrorAlert";
 import { SectionTitle } from "@/components/SectionTitle";
 import { PeerAvatar } from "@/components/PeerAvatar";
 import { SignalStrength } from "@/components/SignalStrength";
-import { ConnectionPill, PeerTypePill } from "@/components/StatusIndicator";
+import { PeerTypePill, RunningPill } from "@/components/StatusIndicator";
 import { TelemetryMapEditor } from "@/components/TelemetryMapEditor";
 import { PeerDetailSheet, type PeerLike } from "@/components/PeerDetailSheet";
 import {
@@ -52,6 +52,7 @@ import { PositionPicker, round6 } from "@/components/PositionPicker";
 import { Switch } from "@/components/ui/switch";
 import { InlineConfirm } from "@/components/InlineConfirm";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -189,19 +190,9 @@ export function RepeaterNodePage() {
           configured ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!running || busy !== null}
-                  className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
-                >
-                  {busy === "advert" ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Send className="size-3.5" />
-                  )}
+                <HeaderButton icon={Send} busy={busy === "advert"} disabled={!running || busy !== null}>
                   advertise
-                </Button>
+                </HeaderButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-sm">
                 <DropdownMenuItem
@@ -242,7 +233,7 @@ export function RepeaterNodePage() {
                   {rep.name}
                 </span>
                 <PeerTypePill type="REPEATER" />
-                <ConnectionPill connected={running} />
+                <RunningPill running={running} />
               </div>
               <code className="block font-mono text-xs text-muted-foreground truncate" title={rep.pubkey}>
                 {truncateMid(rep.pubkey, 10, 8)}

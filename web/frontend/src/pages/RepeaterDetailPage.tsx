@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -48,6 +48,7 @@ import { SignalStrength } from "@/components/SignalStrength";
 import { TelemetryPanel } from "@/components/TelemetryPanel";
 import { SeriesPanel } from "@/components/SeriesPanel";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -464,26 +465,21 @@ export function RepeaterDetailPage({ kind = "repeater" }: { kind?: AdminNodeKind
             {loggedIn && (
               <span
                 className={cn(
-                  "inline-flex items-center gap-1.5 px-2 py-0.5 border font-mono text-[10px] uppercase tracking-[0.12em]",
+                  "inline-flex h-7 items-center gap-1.5 px-2.5 border font-mono text-[11px] uppercase tracking-[0.12em]",
                   isAdmin
                     ? "border-warning/40 text-warning bg-warning/5"
                     : "border-success/40 text-success bg-success/5",
                 )}
               >
-                <Shield className="size-3" />
+                <Shield className="size-3.5" />
                 {session?.role ?? (session?.permissions != null ? roleLabel(session.permissions).toLowerCase() : isAdmin ? "admin" : "guest")}
               </span>
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                {/* icon-xs matches the chips beside it; its before: hit area keeps the 40px touch target. */}
-                <Button
-                  variant="outline"
-                  size="icon-xs"
-                  className="rounded-none"
-                >
-                  <MoreVertical className="size-3.5" />
-                </Button>
+                <HeaderButton icon={MoreVertical} iconOnly>
+                  {kind === "room" ? "Room actions" : kind === "sensor" ? "Sensor actions" : "Repeater actions"}
+                </HeaderButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-sm">
                 <DropdownMenuItem
@@ -726,39 +722,35 @@ function HeaderNavChip({
   short: string;
 }) {
   return (
-    <Link
-      to={to}
-      className="relative before:absolute before:inset-x-0 before:-inset-y-2 before:content-[''] sm:before:hidden inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-primary px-2 py-1 border border-border"
-    >
-      <ArrowLeft className="size-3" />
+    <HeaderButton icon={ArrowLeft} to={to}>
       <span className="sm:hidden">{short}</span>
       <span className="hidden sm:inline">{label}</span>
-    </Link>
+    </HeaderButton>
   );
 }
 
 function PathBadge({ info }: { info: PathInfo | null }) {
   if (!info)
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 border border-border font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        <Route className="size-3" /> path · ?
+      <span className="inline-flex h-7 items-center gap-1.5 px-2.5 border border-border font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+        <Route className="size-3.5" /> path · ?
       </span>
     );
   if (!info.hasPath)
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 border border-border font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        <Route className="size-3" /> flood
+      <span className="inline-flex h-7 items-center gap-1.5 px-2.5 border border-border font-mono text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+        <Route className="size-3.5" /> flood
       </span>
     );
   if (info.directNeighbor)
     return (
-      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 border border-success/40 text-success bg-success/5 font-mono text-[10px] uppercase tracking-[0.12em]">
-        <Route className="size-3" /> direct
+      <span className="inline-flex h-7 items-center gap-1.5 px-2.5 border border-success/40 text-success bg-success/5 font-mono text-[11px] uppercase tracking-[0.12em]">
+        <Route className="size-3.5" /> direct
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 border border-primary/40 text-primary bg-primary/5 font-mono text-[10px] uppercase tracking-[0.12em]">
-      <Route className="size-3" /> {info.hops} hop
+    <span className="inline-flex h-7 items-center gap-1.5 px-2.5 border border-primary/40 text-primary bg-primary/5 font-mono text-[11px] uppercase tracking-[0.12em]">
+      <Route className="size-3.5" /> {info.hops} hop
       {info.hops === 1 ? "" : "s"}
     </span>
   );

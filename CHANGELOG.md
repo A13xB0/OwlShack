@@ -11,6 +11,24 @@ top until tagged.
   On map to plot the repeaters it came through, as the Peers page already does for a peer's path.
   The same works for the echoes of a message you sent, drawn as the loop from you and back.
 
+### Changed
+
+- **Page header buttons share one style.** Every button at the top of a page is the same size and
+  shape with an icon, filled for the page's main action (Add, Save, Scan) and outlined for the
+  rest. A spinner shows while one is working. Reload and Refresh are both Refresh now, and on a
+  phone Monitoring's node actions fold into a menu.
+- **The LIVE indicator is gone from every page.** The System line in the sidebar, and now the dot
+  on the logo, already show when the live connection drops. The Repeater page's badge, which said
+  LIVE or OFFLINE for whether your repeater is running, now says RUNNING or STOPPED.
+- **The Messages page header takes less room.** On a phone the menu sits beside the title. Thread
+  search is a button next to sort: tap it to open the search field, and the cross or Escape clears
+  and closes it. A search you have typed keeps the field open. Sort is an icon too, with a tick on
+  the current order.
+- **The dot on the OwlShack logo shows the system status.** It was always green: now it is green
+  when nominal, amber when degraded, red when OwlShack cannot be reached, and grey while checking,
+  matching the System line. It is the only status shown when the sidebar is collapsed. The dot
+  beside the clock is gone, and status dots no longer pulse when the device asks for reduced motion.
+
 ### Fixed
 
 - **A message's path names the same repeaters as the map.** Where several nodes share a hop's

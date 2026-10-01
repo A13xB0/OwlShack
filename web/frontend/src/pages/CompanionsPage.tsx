@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import {
   Dialog,
   DialogContent,
@@ -125,14 +126,9 @@ export function CompanionsPage() {
           )
         }
         actions={
-          <Button
-            size="sm"
-            onClick={() => setEditing("new")}
-            className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
-          >
-            <Plus className="size-3.5" />
+          <HeaderButton tone="primary" icon={Plus} onClick={() => setEditing("new")}>
             add companion
-          </Button>
+          </HeaderButton>
         }
       />
 

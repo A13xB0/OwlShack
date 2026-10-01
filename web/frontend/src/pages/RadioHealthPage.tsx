@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Antenna, Loader2, RotateCcw } from "lucide-react";
+import { Antenna, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { SectionTitle } from "@/components/SectionTitle";
 import { StatTile } from "@/components/NodeStatTiles";
-import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { batteryBand, type Band } from "@/lib/metrics";
 import { fetchRadioStatus, resetModem, type RadioStatus } from "@/lib/radioApi";
@@ -132,28 +132,23 @@ export function RadioHealthPage() {
         }
         actions={
           resetting ? (
-            <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> resetting
+            <HeaderButton icon={RotateCcw} busy disabled>
+              resetting
+            </HeaderButton>
+          ) : confirming ? (
+            <span className="inline-flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Drop the radio and reconnect?</span>
+              <HeaderButton icon={X} onClick={() => setConfirming(false)}>
+                cancel
+              </HeaderButton>
+              <HeaderButton tone="destructive" icon={RotateCcw} onClick={doReset}>
+                reset
+              </HeaderButton>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-2">
-              {confirming ? (
-                <>
-                  <span className="text-xs text-muted-foreground">Drop the radio and reconnect?</span>
-                  <Button size="sm" variant="destructive" onClick={doReset}>
-                    Reset
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <Button size="sm" variant="outline" onClick={() => setConfirming(true)}>
-                  <RotateCcw className="size-3.5" />
-                  Reset modem
-                </Button>
-              )}
-            </span>
+            <HeaderButton icon={RotateCcw} onClick={() => setConfirming(true)}>
+              reset modem
+            </HeaderButton>
           )
         }
       />

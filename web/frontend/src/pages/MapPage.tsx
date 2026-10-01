@@ -9,10 +9,10 @@ import { useResume } from "@/lib/resume";
 import { useCompanions } from "@/hooks/useCompanions";
 import { usePeerDetailSheet } from "@/hooks/usePeerDetailSheet";
 import { isPeerDelete } from "@/lib/peerWs";
-import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { LoadErrorAlert } from "@/components/LoadErrorAlert";
 import { PageHeader } from "@/components/PageHeader";
-import { ConnectionPill, PEER_TYPE_HEX } from "@/components/StatusIndicator";
+import { PEER_TYPE_HEX } from "@/components/StatusIndicator";
 import { InlineConfirm } from "@/components/InlineConfirm";
 import {
   DropdownMenu,
@@ -177,7 +177,7 @@ export function MapPage() {
     [setPeers],
   );
 
-  const { connected, pending } = useWebSocket(["peers"], handleMessage);
+  useWebSocket(["peers"], handleMessage);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -456,18 +456,9 @@ export function MapPage() {
           </span>
         }
         actions={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={reload}
-              className="h-7 gap-1.5 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-primary"
-            >
-              <RefreshCw className={cn("size-3", loading && "animate-spin")} />
-              refresh
-            </Button>
-            <ConnectionPill connected={connected} pending={pending} />
-          </>
+          <HeaderButton icon={RefreshCw} busy={loading} onClick={reload}>
+            {loading ? "refreshing" : "refresh"}
+          </HeaderButton>
         }
       />
 
