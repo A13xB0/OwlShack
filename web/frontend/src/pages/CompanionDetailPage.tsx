@@ -32,6 +32,7 @@ import {
   Pencil,
   Loader2,
   LogIn,
+  MapPin,
   Megaphone,
   MessageSquare,
   MoreHorizontal,
@@ -104,6 +105,7 @@ import {
   type ContactType,
 } from "@/components/AddContactDialog";
 import { formatClockTime, formatDateTime, formatShortTime, timeAgo, truncateMid } from "@/lib/format";
+import { mapPathHref } from "@/lib/linkPath";
 import { contactDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 
@@ -1922,7 +1924,7 @@ function CompanionChat() {
                   <PathTimeline path={modalPath} />
                 )}
                 {(modal?.kind === "rxPaths" || modal?.kind === "echoes") && (
-                  <HearingList hearings={hearings} />
+                  <HearingList hearings={hearings} direction={modal.kind === "echoes" ? "echo" : "rx"} />
                 )}
               </>
             )}
@@ -2855,7 +2857,8 @@ function PathTimeline({ path }: { path: PathInfo }) {
   );
 }
 
-function HearingList({ hearings }: { hearings: Hearing[] }) {
+// "echo" is our own message heard back, so the plotted path starts and ends with us.
+function HearingList({ hearings, direction }: { hearings: Hearing[]; direction: "rx" | "echo" }) {
   if (hearings.length === 0) {
     return (
       <p className="font-mono text-xs text-muted-foreground/60 px-1 mt-3">
@@ -2869,14 +2872,22 @@ function HearingList({ hearings }: { hearings: Hearing[] }) {
         Heard {hearings.length}× via {hearings.length === 1 ? "1 path" : `${hearings.length} paths`}
       </div>
       {hearings.map((h, i) => (
-        <HearingRow key={h.key} hearing={h} first={i === 0} />
+        <HearingRow key={h.key} hearing={h} first={i === 0} direction={direction} />
       ))}
     </div>
   );
 }
 
 // Expands to the full hop-by-hop path; a direct (0-hop) hearing has nothing to expand.
-function HearingRow({ hearing, first }: { hearing: Hearing; first: boolean }) {
+function HearingRow({
+  hearing,
+  first,
+  direction,
+}: {
+  hearing: Hearing;
+  first: boolean;
+  direction: "rx" | "echo";
+}) {
   const [open, setOpen] = useState(false);
   const direct = hearing.path.length === 0;
   const time = formatClockTime(hearing.receivedAt);
@@ -2916,21 +2927,34 @@ function HearingRow({ hearing, first }: { hearing: Hearing; first: boolean }) {
         </span>
       </button>
       {open && !direct && (
-        <ol className="pl-6 pr-3 pb-2.5 pt-2 border-t border-border/60 space-y-1">
-          {hearing.path.map((hop, i) => (
-            <li
-              key={`${hop.hash}-${i}`}
-              className="font-mono text-[11px] flex items-baseline justify-between gap-2"
-            >
-              <span>
-                {hop.peerNames?.[0] || (
-                  <span className="text-muted-foreground/60 italic">unknown</span>
-                )}
-              </span>
-              <code className="text-muted-foreground/60 text-[10px]">{hop.hash}</code>
-            </li>
-          ))}
-        </ol>
+        <div className="pl-6 pr-3 pb-2.5 pt-2 border-t border-border/60 space-y-2">
+          <ol className="space-y-1">
+            {hearing.path.map((hop, i) => (
+              <li
+                key={`${hop.hash}-${i}`}
+                className="font-mono text-[11px] flex items-baseline justify-between gap-2"
+              >
+                <span>
+                  {hop.peerNames?.[0] || (
+                    <span className="text-muted-foreground/60 italic">unknown</span>
+                  )}
+                </span>
+                <code className="text-muted-foreground/60 text-[10px]">{hop.hash}</code>
+              </li>
+            ))}
+          </ol>
+          <Link
+            to={mapPathHref({
+              path: hearing.path.map((hop) => hop.hash).join(""),
+              hashSize: hearing.path[0].hash.length / 2,
+              direction,
+            })}
+            className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-primary"
+          >
+            <MapPin className="size-3" />
+            on map
+          </Link>
+        </div>
       )}
     </div>
   );

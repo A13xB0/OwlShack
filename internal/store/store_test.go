@@ -575,6 +575,29 @@ func TestPeerRepo_LookupByHash(t *testing.T) {
 	})
 }
 
+// A path hop names the repeater the map would plot for it: never a chat node, and the most recently heard first.
+func TestPeerRepo_LookupRepeatersByHash(t *testing.T) {
+	t.Parallel()
+	st := newTestStore(t)
+	now := time.Now()
+	for _, p := range []*Peer{
+		{PubKey: []byte{0xe6, 0x83, 0x01}, Name: "Torbay Station", Type: "REPEATER", LastSeen: now.Add(-time.Hour)},
+		{PubKey: []byte{0xe6, 0x11, 0x02}, Name: "Steve_local", Type: "CHAT", LastSeen: now},
+		{PubKey: []byte{0xe6, 0xd1, 0x03}, Name: "Torbay Heights", Type: "REPEATER", LastSeen: now.Add(-time.Minute)},
+	} {
+		if err := st.Peers.Upsert(t.Context(), p); err != nil {
+			t.Fatalf("Upsert: %v", err)
+		}
+	}
+	names, err := st.Peers.LookupRepeatersByHash(t.Context(), []byte{0xe6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 2 || names[0] != "Torbay Heights" || names[1] != "Torbay Station" {
+		t.Errorf("got %v, want [Torbay Heights Torbay Station]", names)
+	}
+}
+
 // A batch larger than the 500-row chunk size crosses eachInChunk's boundary.
 func TestPeerRepo_DeleteMany(t *testing.T) {
 	t.Parallel()
