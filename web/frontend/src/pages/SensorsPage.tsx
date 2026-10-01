@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CircleDashed, Clock, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadErrorAlert } from "@/components/LoadErrorAlert";
 import { PageHeader } from "@/components/PageHeader";
@@ -128,10 +129,9 @@ export function SensorsPage() {
           ) : null
         }
         actions={
-          <Button size="sm" onClick={openAdd} className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]">
-            <Plus className="size-3.5" />
-            Add sensor
-          </Button>
+          <HeaderButton tone="primary" icon={Plus} onClick={openAdd}>
+            add sensor
+          </HeaderButton>
         }
       />
 

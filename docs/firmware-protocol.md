@@ -472,7 +472,13 @@ The role facts behind the tags:
 <https://api.meshcore.nz/api/v1/config> `suggested_radio_settings.entries` is
 the source for
 [`radio-presets.json`](../web/frontend/src/data/radio-presets.json) (consumed by
-`RadioPresetSelect` on Settings and in the setup wizard). Regenerate from the
-feed, don't hand-edit. A preset's `network_settings.path_hash_size` becomes
+`RadioPresetSelect` on Settings and in the setup wizard). Regenerate it with
+`go generate ./web` (`web/presetsgen`), don't hand-edit. The generator keeps the
+feed's order, skips an entry Settings would refuse (it runs `config.Validate`
+on each, and takes only the ten LoRa bandwidths) or one missing a field, and
+refuses to write if the feed gives fewer than half the presets the file has.
+`go run ./web/presetsgen -check <file>` exits 1 when the file differs from the
+feed, and only warns when the feed is down or unusable, since regenerating
+cannot fix that; the release workflow runs it on every tag. A preset's `network_settings.path_hash_size` becomes
 `pathHashSize`, which the label shows but does **not** apply — set it on
 Settings (see [mqtt-and-radio.md](./mqtt-and-radio.md)).

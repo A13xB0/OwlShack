@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Radar, Loader2, List, Map as MapIcon } from "lucide-react";
+import { Radar, List, Map as MapIcon } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
 import { PeerAvatar } from "@/components/PeerAvatar";
 import { PeerTypePill } from "@/components/StatusIndicator";
 import { SignalStrength } from "@/components/SignalStrength";
-import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -184,25 +184,15 @@ export function DiscoverPage() {
           </span>
         }
         actions={
-          <Button
-            size="sm"
-            variant="outline"
+          <HeaderButton
+            tone="primary"
+            icon={Radar}
+            busy={starting || running}
             onClick={scan}
             disabled={starting || running || types.length === 0}
-            className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
           >
-            {starting || running ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin" />
-                listening {state?.secsLeft ?? 0}s
-              </>
-            ) : (
-              <>
-                <Radar className="size-3.5" />
-                scan
-              </>
-            )}
-          </Button>
+            {starting || running ? `listening ${state?.secsLeft ?? 0}s` : "scan"}
+          </HeaderButton>
         }
       />
 

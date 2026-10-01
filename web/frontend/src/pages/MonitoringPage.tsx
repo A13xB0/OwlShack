@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { PageHeader } from "@/components/PageHeader";
-import { ConnectionPill } from "@/components/StatusIndicator";
 import { toast } from "sonner";
 import { NodeStatGrid, sparklineMetricKeys } from "@/components/NodeStatTiles";
 import { type SeriesPoint } from "@/components/MetricChart";
@@ -174,7 +173,7 @@ export function MonitoringPage() {
     });
   }, []);
 
-  const { connected, pending } = useWebSocket(["metrics"], onWs);
+  useWebSocket(["metrics"], onWs);
 
   // Stable ordering so cards don't jump around as WS updates arrive.
   const sortedNodes = useMemo(
@@ -196,7 +195,6 @@ export function MonitoringPage() {
             {nodes.length} node{nodes.length === 1 ? "" : "s"}
           </span>
         }
-        trailing={<ConnectionPill connected={connected} pending={pending} />}
       />
 
       {loading ? (

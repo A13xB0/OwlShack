@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { CircleDashed, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApiList } from "@/hooks/useApiList";
 import { useCompanionRef, useCompanions } from "@/hooks/useCompanions";
@@ -99,15 +100,9 @@ export function ContactsPage() {
             )
           }
           actions={
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setDialogOpen(true)}
-              className="font-mono text-xs uppercase tracking-widest"
-            >
-              <UserPlus className="size-3.5" />
-              Add contact
-            </Button>
+            <HeaderButton tone="primary" icon={UserPlus} onClick={() => setDialogOpen(true)}>
+              add contact
+            </HeaderButton>
           }
           className="mb-0"
         />

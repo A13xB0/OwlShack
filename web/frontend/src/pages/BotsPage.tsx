@@ -29,6 +29,7 @@ import { PositionPicker, round6 } from "@/components/PositionPicker";
 import { RegionPicker } from "@/components/RegionPicker";
 import { PeerListField, type PickablePeer } from "@/components/PeerPicker";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import {
   Popover,
   PopoverContent,
@@ -329,15 +330,9 @@ export function BotsPage() {
           )
         }
         actions={
-          <Button
-            size="sm"
-            onClick={() => setEditing("new")}
-            disabled={loading || !ready}
-            className="rounded-none font-mono text-[11px] uppercase tracking-[0.12em]"
-          >
-            <Plus className="size-3.5" />
+          <HeaderButton tone="primary" icon={Plus} onClick={() => setEditing("new")} disabled={loading || !ready}>
             add bot
-          </Button>
+          </HeaderButton>
         }
       />
 

@@ -143,7 +143,7 @@ type statsBlock struct {
 
 	// RX / driver faults.
 	RxDropped uint64 `json:"rx_dropped"`
-	// Signal metadata matched to the wrong packet: any snr/rssi published for it was wrong.
+	// A signal report lost on the modem link, caught by the next frame; its packet was published with no snr/rssi.
 	RxMetaMisattributed uint64 `json:"rx_meta_misattributed"`
 	RxMetaTimeouts      uint64 `json:"rx_meta_timeouts"`
 	HwErrors            uint64 `json:"hw_errors"`

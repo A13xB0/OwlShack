@@ -17,8 +17,8 @@ Also: [README.md](./README.md) (public intro), `s.routes()` in
 [`internal/api/server.go`](./internal/api/server.go) (**authoritative** endpoint
 list), [`internal/store/migrations/`](./internal/store/migrations/) (the schema, one file per version),
 `~/Data/wesley/MeshCore` (firmware source — the tiebreaker for any protocol
-dispute), <https://api.meshcore.nz/api/v1/config> (regenerate
-`web/frontend/src/data/radio-presets.json` from this, don't hand-edit).
+dispute), <https://api.meshcore.nz/api/v1/config> (`go generate ./web`
+regenerates `web/frontend/src/data/radio-presets.json` from it; don't hand-edit).
 
 ## Tech stack
 
@@ -77,6 +77,30 @@ back is moving the copy into place, and there are no down migrations.
 **At release, check the region data** (`internal/region/regions.bin.gz`) is on
 Natural Earth's latest release; the steps are in the regions entry of
 [docs/config-and-storage.md](./docs/config-and-storage.md).
+
+**CHANGELOG.md is written for the people running OwlShack.** Every PR with a
+user-visible change adds its entry under `## Unreleased`. Each entry is a bold
+one-sentence result, then what it means for the user: no mechanism, no
+investigation, no internal or tooling changes (that story goes in the commit and
+the PR), and no untested lists. Use `### Added`, `### Changed` and `### Fixed`,
+plus `### Upgrading` when a user must act, and a schema line when `user_version`
+moves. Older entries predate this and stay as they are. At release, rename the
+section `## vX.Y.Z - YYYY-MM-DD` (plain hyphen) and open it with the baseline tag
+and a one-line summary. The release workflow's awk takes the section from the
+line matching `^## <tag>` to the next `## ` as the release body, so run it locally
+against the tag before tagging.
+
+**Releasing: `main` is always stable.** Either way, a `release/vX` branch
+carrying the changelog heading, the `migrations.sum` record and a
+`go generate ./web` of the radio presets goes into `dev` by PR, and an annotated
+tag starts the release workflow, which fails a tag whose presets differ from the
+MeshCore feed (a feed that is down or unusable only warns).
+- **A release candidate** (`vX.Y.Z-rc.N`) is tagged on that PR's merge commit on
+  `dev`. `main` does not move, and there is nothing to merge back.
+- **A stable release** then takes `dev` into `main` by PR, and the tag goes on
+  `main`'s merge commit. Afterwards, merge `main` back into `dev` by PR with a
+  merge commit, not a squash: the tag sits on a commit only `main` has, so
+  without it `build.sh`'s `git describe` stamps dev builds with the previous tag.
 
 **Every timestamp on outgoing admin traffic comes from
 `Client.UniqueTimestamp()`** (the firmware's `getCurrentTimeUnique()`), never

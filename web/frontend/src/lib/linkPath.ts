@@ -41,11 +41,12 @@ export function resolveHopPeer(
 // them; our own send leads instead. A DIRECT route CONSUMES its hashes (Mesh.cpp:334-342), so a
 // received one carries only the road ahead — a leg running from the relay we overheard to its next
 // hop, with us on neither end. Naming us at the head would claim we are forwarding it on, which is
-// as wrong as the tail claiming the next hop delivered it to us.
+// as wrong as the tail claiming the next hop delivered it to us. An echo of our own flood is a
+// loop, so we sit on both ends.
 export function pathEnds(direction?: string, route?: string) {
   const aheadOnly = !!route?.includes("DIRECT") && direction !== "tx";
   return {
-    weLead: direction === "tx",
+    weLead: direction === "tx" || direction === "echo",
     weTrail: direction !== "tx" && !aheadOnly,
     aheadOnly,
   };

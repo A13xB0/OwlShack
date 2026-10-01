@@ -1,39 +1,19 @@
 import { cn } from "@/lib/utils";
 
-interface ConnectionDotProps {
-  connected: boolean;
-  // Distinguishes a handshake still in flight from a link that dropped; without it every mount paints red.
-  pending?: boolean;
-  className?: string;
-}
-
-export function ConnectionPill({
-  connected,
-  pending,
-  className,
-}: ConnectionDotProps) {
-  const state = connected ? "live" : pending ? "connecting" : "offline";
+// Whether a node we run is up; a configured repeater that is not running is a fault, so it reads red.
+export function RunningPill({ running, className }: { running: boolean; className?: string }) {
   return (
     <div
       className={cn(
         "inline-flex items-center gap-1.5 px-2 py-0.5 border font-mono text-[10px] uppercase tracking-[0.12em]",
-        state === "live" && "border-success/40 text-success bg-success/5",
-        state === "connecting" &&
-          "border-border text-muted-foreground bg-muted/20",
-        state === "offline" &&
-          "border-destructive/40 text-destructive bg-destructive/5",
+        running
+          ? "border-success/40 text-success bg-success/5"
+          : "border-destructive/40 text-destructive bg-destructive/5",
         className,
       )}
     >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 rounded-full",
-          state === "live" && "bg-success scan-pulse",
-          state === "connecting" && "bg-muted-foreground",
-          state === "offline" && "bg-destructive",
-        )}
-      />
-      {state}
+      <span className={cn("h-1.5 w-1.5 rounded-full", running ? "bg-success scan-pulse" : "bg-destructive")} />
+      {running ? "running" : "stopped"}
     </div>
   );
 }

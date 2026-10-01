@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   Link,
   useNavigate,
@@ -29,9 +30,11 @@ import {
   ExternalLink,
   Hash,
   Antenna,
+  ArrowUpDown,
   Pencil,
   Loader2,
   LogIn,
+  MapPin,
   Megaphone,
   MessageSquare,
   MoreHorizontal,
@@ -54,20 +57,14 @@ import { useCompanionRef } from "@/hooks/useCompanions";
 import { useResume } from "@/lib/resume";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { PageHeader } from "@/components/PageHeader";
-import { ConnectionPill, PeerTypePill } from "@/components/StatusIndicator";
+import { PeerTypePill } from "@/components/StatusIndicator";
 import { PeerAvatar } from "@/components/PeerAvatar";
 import { snrTextClass } from "@/components/SignalStrength";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -81,6 +78,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -104,6 +103,7 @@ import {
   type ContactType,
 } from "@/components/AddContactDialog";
 import { formatClockTime, formatDateTime, formatShortTime, timeAgo, truncateMid } from "@/lib/format";
+import { mapPathHref } from "@/lib/linkPath";
 import { contactDetailPath } from "@/lib/routes";
 import { cn } from "@/lib/utils";
 
@@ -230,6 +230,9 @@ function buildHearings(
 }
 
 type SortMode = "recent" | "name" | "unread";
+const SORT_LABELS: Record<SortMode, string> = { recent: "Recent", name: "Name", unread: "Unread" };
+const THREAD_TOOL_CLASS =
+  "inline-flex size-10 md:size-7 shrink-0 items-center justify-center border border-border text-muted-foreground hover:text-foreground hover:bg-muted/40";
 type ModalKind = "path" | "echoes" | "rxPaths";
 
 interface ModalState {
@@ -289,9 +292,6 @@ const BOTTOM_SLACK_PX = 80;
 
 const SORT_KEY = "companion-sort";
 
-const HEADER_ACTION_CLASS =
-  "inline-flex items-center font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-primary px-2.5 py-1.5 sm:py-0.5 border border-border relative before:absolute before:inset-x-0 before:-inset-y-2 before:content-[''] sm:before:hidden";
-
 // Rendered as inline chips on desktop and as menu items in the mobile overflow menu.
 const COMPANION_NAV = [
   { seg: "contacts", label: "contacts", Icon: Users },
@@ -335,6 +335,11 @@ function useAdvert(companion: string) {
   return { busy, send };
 }
 
+const ADVERT_ITEMS = [
+  { mode: "flood", label: "flood advert", Icon: RadioTower },
+  { mode: "zerohop", label: "zero-hop advert", Icon: Antenna },
+] as const;
+
 function AdvertItems({
   busy,
   onSend,
@@ -342,36 +347,12 @@ function AdvertItems({
   busy: AdvertMode | null;
   onSend: (mode: AdvertMode) => void;
 }) {
-  return (
-    <>
-      <DropdownMenuItem
-        onClick={() => onSend("flood")}
-        disabled={busy !== null}
-        className="gap-2"
-      >
-        <RadioTower className="size-3.5 text-muted-foreground" />
-        <div className="flex flex-col">
-          <span className="font-mono text-xs">Flood advert</span>
-          <span className="text-[10px] text-muted-foreground">
-            mesh-wide · rebroadcast
-          </span>
-        </div>
-      </DropdownMenuItem>
-      <DropdownMenuItem
-        onClick={() => onSend("zerohop")}
-        disabled={busy !== null}
-        className="gap-2"
-      >
-        <Antenna className="size-3.5 text-muted-foreground" />
-        <div className="flex flex-col">
-          <span className="font-mono text-xs">Zero-hop advert</span>
-          <span className="text-[10px] text-muted-foreground">
-            direct neighbours only
-          </span>
-        </div>
-      </DropdownMenuItem>
-    </>
-  );
+  return ADVERT_ITEMS.map(({ mode, label, Icon }) => (
+    <DropdownMenuItem key={mode} onClick={() => onSend(mode)} disabled={busy !== null} className="gap-2">
+      <Icon className="size-3.5 text-muted-foreground" />
+      <span className="font-mono text-xs uppercase tracking-[0.12em]">{label}</span>
+    </DropdownMenuItem>
+  ));
 }
 
 // Desktop shows inline chips; mobile collapses them into one "⋯" menu so the header stays one row.
@@ -383,29 +364,20 @@ function CompanionActions({ companion }: { companion: string }) {
 
   return (
     <>
-      <div className="hidden sm:flex items-center gap-2">
+      <div className="hidden sm:flex flex-wrap items-center justify-end gap-2">
         {COMPANION_NAV.map(({ seg, label, Icon }) => (
-          <Link key={seg} to={path(seg)} className={HEADER_ACTION_CLASS}>
-            <Icon className="size-3 mr-1.5" /> {label}
-          </Link>
+          <HeaderButton key={seg} icon={Icon} to={path(seg)}>
+            {label}
+          </HeaderButton>
         ))}
-        <Link to={editPath} className={HEADER_ACTION_CLASS} title="Edit name, position, advert interval">
-          <Pencil className="size-3 mr-1.5" /> edit
-        </Link>
+        <HeaderButton icon={Pencil} to={editPath}>
+          edit
+        </HeaderButton>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              disabled={busy !== null}
-              className={cn(HEADER_ACTION_CLASS, "disabled:opacity-50")}
-            >
-              {busy ? (
-                <Loader2 className="size-3 mr-1.5 animate-spin" />
-              ) : (
-                <Megaphone className="size-3 mr-1.5" />
-              )}
+            <HeaderButton icon={Megaphone} busy={busy !== null} disabled={busy !== null}>
               advert
-            </button>
+            </HeaderButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
@@ -418,13 +390,9 @@ function CompanionActions({ companion }: { companion: string }) {
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="Companion actions"
-            className={cn(HEADER_ACTION_CLASS, "sm:hidden")}
-          >
-            <MoreHorizontal className="size-4" />
-          </button>
+          <HeaderButton icon={MoreHorizontal} iconOnly className="sm:hidden">
+            Companion actions
+          </HeaderButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
@@ -480,6 +448,20 @@ function CompanionChat() {
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const searchBtnRef = useRef<HTMLButtonElement>(null);
+  // A typed query keeps the field open, so a filtered list never hides why.
+  const searchShown = searchOpen || search !== "";
+  const toggleSearch = () => {
+    if (searchShown) {
+      setSearch("");
+      setSearchOpen(false);
+      return;
+    }
+    flushSync(() => setSearchOpen(true));
+    searchRef.current?.focus();
+  };
   const [sort, setSort] = useState<SortMode>(() => {
     try {
       return (window.localStorage.getItem(SORT_KEY) as SortMode | null) ?? "recent";
@@ -1039,7 +1021,7 @@ function CompanionChat() {
     ],
   );
 
-  const { connected, pending } = useWebSocket(["messages"], handleWsMessage);
+  useWebSocket(["messages"], handleWsMessage);
 
   // A gap in the stream leaves this thread and the roster short of whatever arrived during it.
   // Other channels catch up on re-open, via the same backfill.
@@ -1478,7 +1460,6 @@ function CompanionChat() {
               {threadCount === 1 ? "" : "s"}
             </span>
           }
-          trailing={<ConnectionPill connected={connected} pending={pending} />}
           actions={<CompanionActions companion={companionRef} />}
         />
       </div>
@@ -1515,52 +1496,76 @@ function CompanionChat() {
             activeChannel && "hidden lg:flex",
           )}
         >
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
-            <span className="label-overline">Threads</span>
-            <Select
-              value={sort}
-              onValueChange={(v) => setSort(v as SortMode)}
-            >
-              <SelectTrigger
-                size="sm"
-                className="font-mono text-[10px] uppercase tracking-widest h-7 px-2 rounded-none border-border"
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <div className="relative flex-1 min-w-0 h-10 md:h-7">
+              <span
+                aria-hidden={searchShown}
+                className={cn(
+                  "label-overline absolute inset-y-0 left-0 flex items-center transition-opacity duration-200 motion-reduce:transition-none",
+                  searchShown && "opacity-0",
+                )}
               >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem
-                  value="recent"
-                  className="font-mono text-xs uppercase tracking-[0.08em]"
-                >
-                  Recent
-                </SelectItem>
-                <SelectItem
-                  value="name"
-                  className="font-mono text-xs uppercase tracking-[0.08em]"
-                >
-                  Name
-                </SelectItem>
-                <SelectItem
-                  value="unread"
-                  className="font-mono text-xs uppercase tracking-[0.08em]"
-                >
-                  Unread
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="px-3 py-3 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground/50" />
-              <Input
-                value={search}
-                onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                  setSearch(e.target.value)
-                }
-                placeholder="search"
-                className="pl-8 h-8 font-mono text-base md:text-xs rounded-none border-border bg-background"
-              />
+                Threads
+              </span>
+              <div
+                inert={!searchShown}
+                className={cn(
+                  "absolute inset-0 transition-[clip-path,opacity] duration-200 ease-out motion-reduce:transition-none",
+                  searchShown ? "[clip-path:inset(-4px)] opacity-100" : "[clip-path:inset(0_0_0_100%)] opacity-0",
+                )}
+              >
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground/50" />
+                <Input
+                  ref={searchRef}
+                  value={search}
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      toggleSearch();
+                      searchBtnRef.current?.focus();
+                    }
+                  }}
+                  placeholder="search threads"
+                  aria-label="Search threads"
+                  className="pl-8 h-7 font-mono text-base md:text-xs rounded-none border-border bg-background"
+                />
+              </div>
             </div>
+            <button
+              ref={searchBtnRef}
+              type="button"
+              onClick={toggleSearch}
+              aria-label={searchShown ? "Clear and close search" : "Search threads"}
+              aria-expanded={searchShown}
+              className={THREAD_TOOL_CLASS}
+            >
+              {searchShown ? <X className="size-3.5" /> : <Search className="size-3.5" />}
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`Sort threads: ${SORT_LABELS[sort]}`}
+                  title={`Sort: ${SORT_LABELS[sort]}`}
+                  className={THREAD_TOOL_CLASS}
+                >
+                  <ArrowUpDown className="size-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-none border-border">
+                <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as SortMode)}>
+                  {(Object.keys(SORT_LABELS) as SortMode[]).map((m) => (
+                    <DropdownMenuRadioItem
+                      key={m}
+                      value={m}
+                      className="font-mono text-xs uppercase tracking-[0.08em]"
+                    >
+                      {SORT_LABELS[m]}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <div className="flex-1 overflow-y-auto divide-y divide-border/60">
             {loadingList ? (
@@ -1611,7 +1616,7 @@ function CompanionChat() {
                   </div>
                   <div className="text-mono-xs text-muted-foreground">
                     {activeConversation.type === "channel"
-                      ? "broadcast channel"
+                      ? "channel"
                       : isRoom
                         ? roomLoggedIn
                           ? `room server · ${roomSession?.role ?? "joined"}`
@@ -1922,7 +1927,7 @@ function CompanionChat() {
                   <PathTimeline path={modalPath} />
                 )}
                 {(modal?.kind === "rxPaths" || modal?.kind === "echoes") && (
-                  <HearingList hearings={hearings} />
+                  <HearingList hearings={hearings} direction={modal.kind === "echoes" ? "echo" : "rx"} />
                 )}
               </>
             )}
@@ -2855,7 +2860,8 @@ function PathTimeline({ path }: { path: PathInfo }) {
   );
 }
 
-function HearingList({ hearings }: { hearings: Hearing[] }) {
+// "echo" is our own message heard back, so the plotted path starts and ends with us.
+function HearingList({ hearings, direction }: { hearings: Hearing[]; direction: "rx" | "echo" }) {
   if (hearings.length === 0) {
     return (
       <p className="font-mono text-xs text-muted-foreground/60 px-1 mt-3">
@@ -2869,14 +2875,22 @@ function HearingList({ hearings }: { hearings: Hearing[] }) {
         Heard {hearings.length}× via {hearings.length === 1 ? "1 path" : `${hearings.length} paths`}
       </div>
       {hearings.map((h, i) => (
-        <HearingRow key={h.key} hearing={h} first={i === 0} />
+        <HearingRow key={h.key} hearing={h} first={i === 0} direction={direction} />
       ))}
     </div>
   );
 }
 
 // Expands to the full hop-by-hop path; a direct (0-hop) hearing has nothing to expand.
-function HearingRow({ hearing, first }: { hearing: Hearing; first: boolean }) {
+function HearingRow({
+  hearing,
+  first,
+  direction,
+}: {
+  hearing: Hearing;
+  first: boolean;
+  direction: "rx" | "echo";
+}) {
   const [open, setOpen] = useState(false);
   const direct = hearing.path.length === 0;
   const time = formatClockTime(hearing.receivedAt);
@@ -2916,21 +2930,34 @@ function HearingRow({ hearing, first }: { hearing: Hearing; first: boolean }) {
         </span>
       </button>
       {open && !direct && (
-        <ol className="pl-6 pr-3 pb-2.5 pt-2 border-t border-border/60 space-y-1">
-          {hearing.path.map((hop, i) => (
-            <li
-              key={`${hop.hash}-${i}`}
-              className="font-mono text-[11px] flex items-baseline justify-between gap-2"
-            >
-              <span>
-                {hop.peerNames?.[0] || (
-                  <span className="text-muted-foreground/60 italic">unknown</span>
-                )}
-              </span>
-              <code className="text-muted-foreground/60 text-[10px]">{hop.hash}</code>
-            </li>
-          ))}
-        </ol>
+        <div className="pl-6 pr-3 pb-2.5 pt-2 border-t border-border/60 space-y-2">
+          <ol className="space-y-1">
+            {hearing.path.map((hop, i) => (
+              <li
+                key={`${hop.hash}-${i}`}
+                className="font-mono text-[11px] flex items-baseline justify-between gap-2"
+              >
+                <span>
+                  {hop.peerNames?.[0] || (
+                    <span className="text-muted-foreground/60 italic">unknown</span>
+                  )}
+                </span>
+                <code className="text-muted-foreground/60 text-[10px]">{hop.hash}</code>
+              </li>
+            ))}
+          </ol>
+          <Link
+            to={mapPathHref({
+              path: hearing.path.map((hop) => hop.hash).join(""),
+              hashSize: hearing.path[0].hash.length / 2,
+              direction,
+            })}
+            className="inline-flex items-center gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-primary"
+          >
+            <MapPin className="size-3" />
+            on map
+          </Link>
+        </div>
       )}
     </div>
   );

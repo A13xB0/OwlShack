@@ -111,7 +111,7 @@ func (s *Server) resolvePathHashes(ctx context.Context, pathBytes []byte, hashSi
 			Hash: hex.EncodeToString(hashBytes),
 		}
 
-		peers, err := s.store.Peers.LookupByHash(ctx, hashBytes)
+		peers, err := s.store.Peers.LookupRepeatersByHash(ctx, hashBytes)
 		if err == nil {
 			hop.PeerNames = peers
 		}

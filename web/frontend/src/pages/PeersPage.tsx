@@ -18,6 +18,7 @@ import { isPeerDelete } from "@/lib/peerWs";
 import { deletePeers, deletedPeersMessage } from "@/lib/peerApi";
 import { InlineConfirm } from "@/components/InlineConfirm";
 import { Button } from "@/components/ui/button";
+import { HeaderButton } from "@/components/HeaderButton";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadErrorAlert } from "@/components/LoadErrorAlert";
@@ -37,7 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/PageHeader";
-import { ConnectionPill, PeerTypePill } from "@/components/StatusIndicator";
+import { PeerTypePill } from "@/components/StatusIndicator";
 import { SignalStrength } from "@/components/SignalStrength";
 import { PeerAvatar } from "@/components/PeerAvatar";
 import { PeerDetailSheet, advertPathInfo } from "@/components/PeerDetailSheet";
@@ -177,7 +178,7 @@ export function PeersPage() {
     [setPeers],
   );
 
-  const { connected, pending } = useWebSocket(["peers"], handleMessage);
+  useWebSocket(["peers"], handleMessage);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -248,18 +249,9 @@ export function PeersPage() {
           </span>
         }
         actions={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={reload}
-              className="h-7 gap-1.5 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground hover:text-primary"
-            >
-              <RefreshCw className={cn("size-3", loading && "animate-spin")} />
-              refresh
-            </Button>
-            <ConnectionPill connected={connected} pending={pending} />
-          </>
+          <HeaderButton icon={RefreshCw} busy={loading} onClick={reload}>
+            {loading ? "refreshing" : "refresh"}
+          </HeaderButton>
         }
       />
 

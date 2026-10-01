@@ -20,7 +20,7 @@ import {
   Waves,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { SystemStatus } from "@/components/SystemStatus";
+import { SystemStatus, SystemStatusDot, useSystemHealth } from "@/components/SystemStatus";
 import {
   Sidebar,
   SidebarContent,
@@ -346,6 +346,7 @@ function CommsSection({
 export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const pathname = location.pathname;
+  const system = useSystemHealth();
 
   // Config has no WS topic, and the roster only changes on `/companions*`, so refresh around that nav.
   const { items: companions, reload: reloadCompanions } =
@@ -399,7 +400,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link to="/" className="flex items-center gap-2.5">
             <div className="relative size-8 grid place-items-center rounded-sm bg-primary/10 border border-primary/30 shrink-0">
               <span className="owl-mark h-4 w-[22px] bg-primary" aria-hidden="true" />
-              <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary scan-pulse" />
+              <SystemStatusDot state={system.state} className="absolute -top-0.5 -right-0.5" />
             </div>
             <div className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
               <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -427,7 +428,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </SidebarContent>
 
         <SidebarFooter className="border-t border-sidebar-border px-2 py-2 gap-1 group-data-[collapsible=icon]:hidden">
-          <SystemStatus />
+          <SystemStatus status={system} />
           <InstallButton />
           <ThemeToggle />
         </SidebarFooter>
@@ -565,9 +566,6 @@ function ClockBadge() {
     hour12: false,
   });
   return (
-    <span className="hidden md:inline-flex items-center gap-1.5">
-      <span className="size-1.5 rounded-full bg-primary scan-pulse" />
-      <span className="text-foreground tabular-nums">{time}</span>
-    </span>
+    <span className="hidden md:inline text-foreground tabular-nums">{time}</span>
   );
 }
