@@ -1,7 +1,7 @@
 filippo.io/edwards25519 v1.2.0 h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=
 filippo.io/edwards25519 v1.2.0/go.mod h1:xzAOLCNug/yB62zG1bQ8uziwrIqIuxhctzJT18Q77mc=
-github.com/A13xB0/meshcore-go v1.5.1-0.20261002005213-9a64eb7272bb h1:ZeCf4SBvdvE6Fh1BBG1fDQtK7f1Vrf0R3J7oWPrMUVE=
-github.com/A13xB0/meshcore-go v1.5.1-0.20261002005213-9a64eb7272bb/go.mod h1:fdsJJIFjtuqiX13cpKjUY7cg4YzeUBgceEz2sbtnhL8=
+github.com/A13xB0/meshcore-go v1.5.1-0.20261002015122-8c8ee85bd60e h1:IWuRsdOo4/v6T79e/gJi0xBSVXG8gNutkNghfhutvtc=
+github.com/A13xB0/meshcore-go v1.5.1-0.20261002015122-8c8ee85bd60e/go.mod h1:fdsJJIFjtuqiX13cpKjUY7cg4YzeUBgceEz2sbtnhL8=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
