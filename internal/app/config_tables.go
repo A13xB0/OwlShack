@@ -253,6 +253,7 @@ func assembleFromRows(rows *configRows) *config.Config {
 		m := &config.MqttConfig{
 			Enabled:        mq.Enabled,
 			IataCode:       mq.IataCode,
+			Identity:       mqttIdentity(mq.Identity),
 			StatusInterval: mq.StatusInterval,
 			Owner:          mq.Owner,
 			Email:          mq.Email,
@@ -302,7 +303,7 @@ func hasMqttConfig(mq *store.MqttSettings, brokers []store.Broker) bool {
 	if len(brokers) > 0 {
 		return true
 	}
-	return mq.Enabled != nil || mq.NodeCompanionID != nil || mq.IataCode != nil ||
+	return mq.Enabled != nil || mq.NodeCompanionID != nil || mqttIdentity(mq.Identity) != "" || mq.IataCode != nil ||
 		mq.StatusInterval != nil || mq.Owner != nil || mq.Email != nil
 }
 
@@ -525,6 +526,7 @@ func writeMqtt(ctx context.Context, st *store.Store, cfg *config.Config, nameToI
 	var brokers []config.BrokerConfig
 	if cfg.Mqtt != nil {
 		mq.Enabled = cfg.Mqtt.Enabled
+		mq.Identity = cfg.Mqtt.Identity
 		mq.IataCode = cfg.Mqtt.IataCode
 		mq.StatusInterval = cfg.Mqtt.StatusInterval
 		mq.Owner = cfg.Mqtt.Owner
@@ -627,4 +629,12 @@ func ptrToSlice(p *[]string) []string {
 		return nil
 	}
 	return *p
+}
+
+// mqttIdentity reads the stored identity back as config writes it: the default, companion, stays empty.
+func mqttIdentity(stored string) string {
+	if stored == config.MqttIdentityCompanion {
+		return ""
+	}
+	return stored
 }

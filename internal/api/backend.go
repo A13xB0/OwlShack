@@ -529,12 +529,14 @@ type SettingsInput struct {
 }
 
 type MqttInput struct {
-	Enabled         *bool   `json:"enabled"`
-	NodeCompanionID *int64  `json:"nodeCompanionId"`
-	IataCode        *string `json:"iataCode"`
-	StatusInterval  *int    `json:"statusInterval"`
-	Owner           *string `json:"owner"`
-	Email           *string `json:"email"`
+	Enabled         *bool  `json:"enabled"`
+	NodeCompanionID *int64 `json:"nodeCompanionId"`
+	// Identity is "companion" or "repeater"; nil keeps the stored one.
+	Identity       *string `json:"identity"`
+	IataCode       *string `json:"iataCode"`
+	StatusInterval *int    `json:"statusInterval"`
+	Owner          *string `json:"owner"`
+	Email          *string `json:"email"`
 }
 
 type BrokerInput struct {

@@ -321,6 +321,12 @@ func (c *Config) Validate() error {
 		if c.Mqtt.Node != nil && *c.Mqtt.Node != "" && !seen[*c.Mqtt.Node] {
 			return fmt.Errorf("mqtt node %q does not match any companion", *c.Mqtt.Node)
 		}
+		if c.Mqtt.Identity != "" && !slices.Contains(MqttIdentities, c.Mqtt.Identity) {
+			return fmt.Errorf("mqtt identity %q: must be one of %s", c.Mqtt.Identity, strings.Join(MqttIdentities, ", "))
+		}
+		if c.Mqtt.AsRepeater() && c.Repeater == nil {
+			return fmt.Errorf("mqtt identity is repeater, but no repeater is configured")
+		}
 		// Broker names must be unique: the observer's health map and /api/mqtt/status key on them.
 		seenBroker := make(map[string]bool, len(c.Mqtt.Brokers))
 		for i, b := range c.Mqtt.Brokers {
