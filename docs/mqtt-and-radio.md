@@ -70,7 +70,7 @@ publish:
 | `battery_mv`, `noise_floor`, `mcu_temp_c` | polled off the board every publish |
 | `uptime_secs`, all counters, air seconds | live atomics |
 | `radio` | captured at `modem.Setup`; a radio change forces a modem reconnect, which rebuilds the provider |
-| `origin`, `origin_id` | captured at observer construction; a rename changes the companion block, so the companion (and its observer) is rebuilt |
+| `origin`, `origin_id` | captured at observer construction: the node companion's, or the repeater's with `mqtt.identity: repeater`; a rename or key change of either changes the companion block, so the companion (and its observer) is rebuilt |
 | `model`, `firmware_version`, `client_version` | build-time constants |
 | `repeat` | cached in an atomic, **pushed** on change |
 
