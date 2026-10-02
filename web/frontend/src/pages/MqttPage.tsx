@@ -31,6 +31,8 @@ import {
   type Broker,
   type BrokerInput,
   type ConfigCompanion,
+  type ConfigRepeater,
+  type MqttIdentity,
   type MqttSettings,
 } from "@/lib/configApi";
 
@@ -154,10 +156,15 @@ export function MqttPage() {
     "/api/config/companions",
     "Failed to load companions",
   );
+  const { item: repeater } = useApiObject<ConfigRepeater>(
+    "/api/config/repeater",
+    "Failed to load repeater",
+  );
 
   const [savingFeed, setSavingFeed] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [nodeId, setNodeId] = useState("");
+  const [identity, setIdentity] = useState<MqttIdentity>("companion");
   const [iataCode, setIataCode] = useState("");
   const [owner, setOwner] = useState("");
   const [email, setEmail] = useState("");
@@ -169,6 +176,7 @@ export function MqttPage() {
     if (!mqtt) return;
     setEnabled(mqtt.enabled !== false);
     setNodeId(mqtt.nodeCompanionId != null ? String(mqtt.nodeCompanionId) : "");
+    setIdentity(mqtt.identity ?? "companion");
     setIataCode(mqtt.iataCode ?? "");
     setOwner(mqtt.owner ?? "");
     setEmail(mqtt.email ?? "");
@@ -221,6 +229,7 @@ export function MqttPage() {
       await configApi.putMqtt({
         enabled,
         nodeCompanionId: nodeId === "" ? null : parseInt(nodeId, 10),
+        identity,
         iataCode: iataCode || null,
         owner: owner || null,
         email: email || null,
@@ -297,7 +306,7 @@ export function MqttPage() {
                 checked={enabled}
                 onChange={setEnabled}
               />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <SelectField
                   label="Node"
                   value={nodeId}
@@ -306,7 +315,20 @@ export function MqttPage() {
                     label: c.name,
                   }))}
                   onChange={setNodeId}
-                  hint="one node feeds MQTT — its identity signs the feed"
+                  hint="the companion the observer runs on"
+                />
+                <SelectField
+                  label="Publish as"
+                  value={identity}
+                  options={[
+                    { value: "companion", label: "Node companion" },
+                    // Only offered with a repeater to publish as; a stored choice stays visible so it can be changed back.
+                    ...(repeater?.configured || identity === "repeater"
+                      ? [{ value: "repeater", label: repeater?.name ? `Repeater (${repeater.name})` : "Repeater" }]
+                      : []),
+                  ]}
+                  onChange={(v) => setIdentity(v as MqttIdentity)}
+                  hint="whose key and name sign the feed and appear on maps"
                 />
                 <TextField
                   label="IATA code"
