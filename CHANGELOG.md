@@ -3,6 +3,27 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
+## Unreleased
+
+Schema `user_version` 21 to 22: adds each companion's flood scope.
+
+### Added
+
+- **A flood scope for each companion.** Set a region such as `sco` on the companion's settings and
+  everything it floods goes out scoped to it: channel messages, DMs and bot replies, ACKs, path
+  returns, replies to requests, adverts, and logins and requests to repeaters. Repeaters that
+  keep a region closed to unscoped traffic now relay what the companion sends, as they do for a
+  phone companion with a default scope set. Direct sends are never scoped, and a companion with no
+  scope floods unscoped as before.
+
+### Fixed
+
+- **A region named without a `#` now relays the same traffic firmware repeaters do.** A region
+  such as `sco` is the `#sco` hashtag region, as on firmware, so the repeater re-floods packets
+  that firmware nodes scope to it and scopes its own adverts so they relay. Before, `sco` and `#sco`
+  were two different regions and only `#sco` matched what other nodes sent. Regions already
+  written with a `#` are unchanged.
+
 ## v1.5.0 - 2026-10-01
 
 Baseline `v1.4.2`. Sensors on the Pi, sent over the mesh; bytes per hop and one Path window for

@@ -1,5 +1,7 @@
 filippo.io/edwards25519 v1.2.0 h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=
 filippo.io/edwards25519 v1.2.0/go.mod h1:xzAOLCNug/yB62zG1bQ8uziwrIqIuxhctzJT18Q77mc=
+github.com/A13xB0/meshcore-go v1.5.1-0.20261002005213-9a64eb7272bb h1:ZeCf4SBvdvE6Fh1BBG1fDQtK7f1Vrf0R3J7oWPrMUVE=
+github.com/A13xB0/meshcore-go v1.5.1-0.20261002005213-9a64eb7272bb/go.mod h1:fdsJJIFjtuqiX13cpKjUY7cg4YzeUBgceEz2sbtnhL8=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
@@ -20,8 +22,6 @@ github.com/jonboulle/clockwork v0.5.0 h1:Hyh9A8u51kptdkR+cqRpT1EebBwTn1oK9YfGYbd
 github.com/jonboulle/clockwork v0.5.0/go.mod h1:3mZlmanh0g2NDKO5TWZVJAfofYk64M7XN3SzBPjZF60=
 github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
-github.com/meshcore-go/meshcore-go v1.6.0 h1:1W6B7HXAizQMFWtezaAu/vrN5f6G46hYuwBttD/dKxc=
-github.com/meshcore-go/meshcore-go v1.6.0/go.mod h1:fdsJJIFjtuqiX13cpKjUY7cg4YzeUBgceEz2sbtnhL8=
 github.com/meshcore-go/meshcore-go/hardware/openhop v1.6.0 h1:Wj4qgbo6YhwbWI5ZyYNr+YKgsYsWy30L5LOncdvcXRg=
 github.com/meshcore-go/meshcore-go/hardware/openhop v1.6.0/go.mod h1:jDILV+z81jMkTSroblapZeCoO7BJ+iD+RHK6MFUFHIg=
 github.com/meshcore-go/meshcore-go/hardware/sx12xx v1.6.0 h1:71lfOlK5nU7BnACZTZAM7ruVlvaHKNyuDjdXS0RKric=

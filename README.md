@@ -330,6 +330,7 @@ Companions page.
 | `privateKey` | 64-hex ed25519 seed; leave it unset and one is generated and stored |
 | `latitude` / `longitude` | Advertised position (decimal degrees) |
 | `advertInterval` | Seconds between adverts; `0` = never |
+| `floodScope` | Region every flood it sends goes out in, such as `sco`; empty floods unscoped |
 | `channels` | Channels to join |
 | `trigger` | Triggers attached to this companion |
 | `dmPolicy` | Who may DM this companion: `contacts` (default), `allowlist` or `anyone` |

@@ -331,6 +331,7 @@ func (rm *Client) sendReciprocalPath(pkt *meshcore.Packet, peerPubKey, secret, l
 		return
 	}
 	meshpath.Direct(rpath, learnedPath, hashSize)
+	meshpath.ScopeFlood(rm.node, rpath)
 	if err := rm.node.SendPacketDelayed(rpath, node.PriorityFloodRelay, reciprocalPathDelay); err != nil {
 		rm.log.Debug("failed to send reciprocal path return", "error", err)
 		return
@@ -357,6 +358,7 @@ func (rm *Client) retryReciprocalPath(pkt *meshcore.Packet, peerPubKey [32]byte,
 		return
 	}
 	meshpath.Direct(rpath, outPath, hashSize)
+	meshpath.ScopeFlood(rm.node, rpath)
 	if err := rm.node.SendPacketDelayed(rpath, node.PriorityFloodRelay, returnPathRetryDelay); err != nil {
 		rm.log.Debug("failed to send return path retry", "error", err)
 		return

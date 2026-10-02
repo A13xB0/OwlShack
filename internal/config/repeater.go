@@ -60,6 +60,11 @@ type RepeaterRegion struct {
 const WildcardRegion = "*"
 
 // validateRegionName mirrors the firmware's RegionMap::is_name_char / MAX_REGION_NAME; the wildcard "*" is exempt.
+// ScopeRegion is the region a scope name stands for: a bare name is the "#name" hashtag region, as RegionMap::getTransportKeysFor has it.
+func ScopeRegion(name string) *meshcore.Region {
+	return meshcore.NewRegionFromKey(name, meshcore.NewRegionFromHashtag(name).Key)
+}
+
 func validateRegionName(name string) error {
 	if name == WildcardRegion {
 		return nil
