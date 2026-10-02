@@ -81,6 +81,9 @@ type Companion struct {
 	// MQTT: outbound only
 	obs *mqtt.Observer
 
+	// appSink is the companion app connection listening to this companion, if any.
+	appSink atomic.Pointer[appSinkHolder]
+
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	// runCtx is kept so ReloadTriggers can start new triggers without a full restart.
