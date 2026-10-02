@@ -21,11 +21,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useApiList } from "@/hooks/useApiList";
-import { configApi, type ConfigCompanion } from "@/lib/configApi";
+import { configApi, type AppPortStatus, type ConfigCompanion } from "@/lib/configApi";
 import { LoadErrorAlert } from "@/components/LoadErrorAlert";
 import { PageHeader } from "@/components/PageHeader";
 import { InlineConfirm } from "@/components/InlineConfirm";
-import { PATH_HASH_SIZE_OPTIONS, SelectField, TextField } from "@/components/ConfigFields";
+import { PATH_HASH_SIZE_OPTIONS, SelectField, SwitchRow, TextField } from "@/components/ConfigFields";
 import { PositionPicker, round6 } from "@/components/PositionPicker";
 import { PeerListField, type PickablePeer } from "@/components/PeerPicker";
 import { truncateMid } from "@/lib/format";
@@ -60,6 +60,10 @@ export function CompanionsPage() {
   const { items: runtime, reload: reloadRuntime } = useApiList<RuntimeCompanion>(
     "/api/companions",
     "Failed to load companion roster",
+  );
+  const { items: appPorts } = useApiList<AppPortStatus>(
+    "/api/appserver/status",
+    "Failed to load companion app ports",
   );
 
   const [editing, setEditing] = useState<ConfigCompanion | "new" | null>(null);
@@ -183,6 +187,12 @@ export function CompanionsPage() {
                         <code className="font-mono text-xs text-muted-foreground block truncate">
                           {c.pubkey ? truncateMid(c.pubkey, 8, 6) : "—"}
                         </code>
+                        {c.app && (
+                          <AppPortLine
+                            port={c.app.port}
+                            status={appPorts?.find((p) => p.companionId === c.id)}
+                          />
+                        )}
                       </div>
 
                       <div className="hidden sm:flex items-center gap-5 shrink-0">
@@ -265,6 +275,11 @@ function CompanionEditor({
   const [advertInterval, setAdvertInterval] = useState(
     companion?.advertInterval != null ? String(companion.advertInterval) : "",
   );
+  const [floodScope, setFloodScope] = useState(companion?.floodScope ?? "");
+  const [appOn, setAppOn] = useState(companion?.app != null);
+  const [appPort, setAppPort] = useState(companion?.app ? String(companion.app.port) : "");
+  const [appBind, setAppBind] = useState(companion?.app?.bind ?? "");
+  const [appKeyExport, setAppKeyExport] = useState(companion?.app?.allowKeyExport ?? false);
   const { items: peers } = useApiList<PickablePeer>(
     "/api/peers",
     "Failed to load peers",
@@ -278,7 +293,7 @@ function CompanionEditor({
   const submit = async () => {
     setSaving(true);
     try {
-      await configApi.saveCompanion(
+      const id = await configApi.saveCompanion(
         {
           name: name.trim(),
           // Key only on create (blank = generated); omitted on edit keeps the stored identity.
@@ -288,11 +303,19 @@ function CompanionEditor({
           advertInterval:
             advertInterval === "" ? null : parseInt(advertInterval, 10) || 0,
           pathHashSize: pathHashSize === "" ? null : parseInt(pathHashSize, 10),
+          floodScope: floodScope.trim(),
           dmPolicy,
           dmAllow: dmAllow.map((k) => k.trim()).filter(Boolean),
         },
         companion?.id,
       );
+      const app = appOn
+        ? { port: parseInt(appPort, 10) || 0, bind: appBind.trim(), allowKeyExport: appKeyExport }
+        : { port: 0, bind: "", allowKeyExport: false };
+      const before = companion?.app ?? { port: 0, bind: "", allowKeyExport: false };
+      if (app.port !== before.port || app.bind !== before.bind || app.allowKeyExport !== before.allowKeyExport) {
+        await configApi.setCompanionApp(companion?.id ?? id, app);
+      }
       toast.success(companion ? "Companion saved" : `Companion "${name.trim()}" added`);
       onSaved();
     } catch (e) {
@@ -386,6 +409,13 @@ function CompanionEditor({
               hint="width of each hop hash in our flood packets"
             />
           </div>
+          <TextField
+            label="Flood scope"
+            value={floodScope}
+            onChange={setFloodScope}
+            placeholder="blank = unscoped"
+            hint="region its floods go out in, such as sco, so repeaters that only relay that region pass them on"
+          />
 
           <SelectField
             label="Who can DM this companion"
@@ -407,6 +437,43 @@ function CompanionEditor({
               dialogDescription="Pick who may DM this companion. Only companions are listed: a repeater, room server or sensor never sends a plain DM."
               idPrefix="dm-allow"
             />
+          )}
+
+          <SwitchRow
+            label="Companion app connection"
+            hint="lets the MeshCore app, RemoteTerm, MeshMonitor and the like drive this companion over TCP, as they drive a WiFi companion radio"
+            checked={appOn}
+            onChange={setAppOn}
+          />
+          {appOn && (
+            <>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <TextField
+                  label="App port"
+                  value={appPort}
+                  onChange={setAppPort}
+                  placeholder="5000"
+                  hint="one port per companion"
+                />
+                <TextField
+                  label="Bind address"
+                  value={appBind}
+                  onChange={setAppBind}
+                  placeholder="blank = every address"
+                  hint="127.0.0.1 keeps it to this machine"
+                />
+              </div>
+              <p className="font-mono text-[10px] leading-snug text-warning">
+                The protocol has no password: anyone who can reach this port can send as this
+                companion, as with a WiFi companion radio. Keep it on a network you trust.
+              </p>
+              <SwitchRow
+                label="Allow key export"
+                hint="an app may read this companion's private key, which is its identity on the mesh"
+                checked={appKeyExport}
+                onChange={setAppKeyExport}
+              />
+            </>
           )}
 
           <div className="flex justify-end gap-2 pt-1">
@@ -478,5 +545,24 @@ function CompanionsSkeleton() {
         ))}
       </div>
     </section>
+  );
+}
+
+// AppPortLine is a companion's app port at a glance: who is connected, or why nobody can.
+function AppPortLine({ port, status }: { port: number; status?: AppPortStatus }) {
+  let text = "no app connected";
+  let tone = "text-muted-foreground/70";
+  if (status?.error) {
+    text = "port could not open";
+    tone = "text-destructive";
+  } else if (status?.client) {
+    text = `${status.appName || "app"} · ${status.client.replace(/:\d+$/, "")}`;
+    tone = "text-primary";
+  }
+  return (
+    <div className={`font-mono text-[10px] uppercase tracking-[0.08em] truncate ${tone}`}>
+      App :{port} · {text}
+      {status && status.replaced > 0 && ` · replaced ${status.replaced}×`}
+    </div>
   );
 }

@@ -40,6 +40,7 @@ func (c *Companion) sendDMAck(pkt *meshcore.Packet, senderPubKey []byte, sharedS
 			c.log.Debug("failed to build path return for DM ACK", "error", err)
 			return
 		}
+		meshpath.ScopeFlood(c.node, pathReturn)
 		if err := c.node.SendPacketDelayed(pathReturn, node.PriorityFloodRelay, dmAckDelay); err != nil {
 			c.log.Debug("failed to send DM ACK (path return)", "error", err)
 		}
@@ -61,6 +62,7 @@ func (c *Companion) sendDMAck(pkt *meshcore.Packet, senderPubKey []byte, sharedS
 			ackPkt.PathLength = (hs-1)<<6 | byte(len(outPath)/int(hs))
 		}
 
+		meshpath.ScopeFlood(c.node, ackPkt)
 		if err := c.node.SendPacketDelayed(ackPkt, node.PriorityFloodRelay, dmAckDelay); err != nil {
 			c.log.Debug("failed to send DM ACK", "error", err)
 		}
@@ -131,6 +133,13 @@ func (c *Companion) handleRoomPush(pkt *meshcore.Packet, roomPubKey []byte, room
 			}
 		}
 	}
+
+	var roomKey [32]byte
+	copy(roomKey[:], roomPubKey)
+	c.emitMessage(AppMessage{
+		Kind: AppMessageContact, SenderPubKey: roomKey, SenderPrefix: append([]byte(nil), authorPrefix...),
+		TxtType: txtTypeSignedPlain, SenderTimestamp: postTs, Text: text,
+	}, pkt)
 
 	authorName := hex.EncodeToString(authorPrefix) + "…"
 	if names, lookupErr := c.store.Peers.LookupByHash(c.runCtx, authorPrefix); lookupErr == nil && len(names) > 0 {
@@ -219,6 +228,9 @@ func (c *Companion) handleDMPathReturn(pkt *meshcore.Packet) {
 		var pubkey [32]byte
 		copy(pubkey[:], cand.pubkey)
 		c.node.Peers().SetOutPath(pubkey, returnPath, pp.PathHashSize())
+		if s := c.sink(); s != nil {
+			s.PathUpdated(pubkey)
+		}
 		hs := pp.PathHashSize()
 		peerPubKey := cand.pubkey
 		c.store.WriteAsync(func() {
@@ -251,6 +263,9 @@ func (c *Companion) registerPacketHandlers() {
 	radio.SetRawDataHandler(func(data []byte, snr float32, rssi int8, hasSignalInfo bool) {
 		if c.echoTracker != nil {
 			c.echoTracker.OnRawPacket(c.cfg.Name, data, snr, rssi, hasSignalInfo)
+		}
+		if s := c.sink(); s != nil {
+			s.RawRX(data, snr, rssi)
 		}
 	})
 
@@ -290,7 +305,12 @@ func (c *Companion) registerPacketHandlers() {
 			return
 		}
 
+		if s := c.sink(); s != nil {
+			s.Advert(pkt, adv)
+		}
+
 		appData := adv.AppData()
+		advertPayload := append([]byte(nil), pkt.Payload...)
 		p := &store.Peer{
 			PubKey:          adv.PublicKey.PublicKeyBytes(),
 			Name:            appData.Name,
@@ -314,6 +334,9 @@ func (c *Companion) registerPacketHandlers() {
 			if err := c.store.Peers.Upsert(context.Background(), p); err != nil {
 				c.log.Error("failed to persist peer", "error", err)
 				return
+			}
+			if err := c.store.Peers.SetAdvert(context.Background(), p.PubKey, advertPayload); err != nil {
+				c.log.Error("failed to keep peer advert", "error", err)
 			}
 
 			// Advert wins on location, but only when it carries one — a no-GPS advert leaves a hand-set location alone.
@@ -403,6 +426,15 @@ func (c *Companion) registerPacketHandlers() {
 			c.log.Debug("blocked sender filtered", "sender", payload.Sender, "channel", ch.Name)
 			return
 		}
+
+		text := payload.Text
+		if payload.Sender != "" {
+			text = payload.Sender + ": " + payload.Text
+		}
+		c.emitMessage(AppMessage{
+			Kind: AppMessageChannel, ChannelIdx: c.ChannelIndex(ch),
+			TxtType: txtTypePlain, SenderTimestamp: payload.Timestamp, Text: text,
+		}, pkt)
 
 		c.store.WriteAsync(func() {
 			if err := c.store.Messages.Insert(context.Background(), msg); err != nil {
@@ -523,8 +555,13 @@ func (c *Companion) registerPacketHandlers() {
 			var senderKey [32]byte
 			copy(senderKey[:], senderPubKey)
 			c.repeaters.HandleCLIResponse(senderKey, text)
+			c.emitMessage(AppMessage{
+				Kind: AppMessageContact, SenderPubKey: senderKey,
+				TxtType: txtTypeCliData, SenderTimestamp: binary.LittleEndian.Uint32(plaintext[:4]), Text: text,
+			}, pkt)
 			if pkt.IsRouteFlood() { // firmware: teach the sender our path (no ACK as extra)
 				if pr, err := c.buildPathReturn(senderPubKey, sharedSecret, pkt.Path, pkt.PathLength, 0, nil); err == nil {
+					meshpath.ScopeFlood(c.node, pr)
 					if err := c.node.SendPacketDelayed(pr, node.PriorityFloodRelay, 0); err != nil {
 						c.log.Debug("failed to send CLI path return", "error", err)
 					}
@@ -563,6 +600,13 @@ func (c *Companion) registerPacketHandlers() {
 			c.log.Debug("duplicate DM ignored", "from", senderName, "attempt", attemptByte)
 			return
 		}
+
+		var senderKey [32]byte
+		copy(senderKey[:], senderPubKey)
+		c.emitMessage(AppMessage{
+			Kind: AppMessageContact, SenderPubKey: senderKey,
+			TxtType: txtTypePlain, SenderTimestamp: binary.LittleEndian.Uint32(plaintext[:4]), Text: text,
+		}, pkt)
 
 		channelKey := "dm:" + senderPubKeyHex
 
@@ -667,6 +711,9 @@ func (c *Companion) registerPacketHandlers() {
 			snrPtr = &snr
 		}
 		c.notifyTraceWaiter(tr.Tag, traceEcho{hops: hops, pathHex: pathHexes, hopSNRs: hopSNRs, snr: snrPtr})
+		if s := c.sink(); s != nil {
+			s.Trace(pkt, tr)
+		}
 
 		if c.hub != nil {
 			wsMsg := map[string]any{
@@ -694,6 +741,31 @@ func (c *Companion) registerPacketHandlers() {
 	})
 
 	c.node.OnPacket(meshcore.PayloadTypeReq, c.handleReq)
+
+	// Channel datagrams and raw and control packets only ever go to an app: OwlShack itself shows none of them.
+	c.node.OnPacket(meshcore.PayloadTypeGrpData, func(pkt *meshcore.Packet) {
+		if c.sink() == nil {
+			return
+		}
+		data, ch, err := c.node.DecryptGroupData(pkt)
+		if err != nil || len(data) < 3 || int(data[2]) > len(data)-3 {
+			return
+		}
+		c.emitMessage(AppMessage{
+			Kind: AppMessageChannelData, ChannelIdx: c.ChannelIndex(ch),
+			DataType: binary.LittleEndian.Uint16(data[:2]), Data: append([]byte(nil), data[3:3+int(data[2])]...),
+		}, pkt)
+	})
+	c.node.OnPacket(meshcore.PayloadTypeControl, func(pkt *meshcore.Packet) {
+		if s := c.sink(); s != nil {
+			s.Control(pkt)
+		}
+	})
+	c.node.OnPacket(meshcore.PayloadTypeRawCustom, func(pkt *meshcore.Packet) {
+		if s := c.sink(); s != nil {
+			s.RawCustom(pkt)
+		}
+	})
 
 	c.node.OnPacket(meshcore.PayloadTypePath, func(pkt *meshcore.Packet) {
 		if c.repeaters.HandlePathPacket(pkt) {
@@ -862,6 +934,7 @@ func (c *Companion) sendReciprocalPathReturn(peerPubKey, secret []byte, pkt *mes
 		return
 	}
 	meshpath.Direct(rpath, learnedPath, hashSize)
+	meshpath.ScopeFlood(c.node, rpath)
 	if err := c.node.SendPacketDelayed(rpath, node.PriorityFloodRelay, reciprocalPathDelay); err != nil {
 		c.log.Debug("failed to send reciprocal path return", "error", err)
 		return

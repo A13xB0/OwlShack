@@ -634,8 +634,11 @@ func (r *Repeater) cliRegion(cmd string) string {
 			parent = p
 		}
 		name := truncate(arg, maxRegionNameLen)
-		if !isValidRegionName(name) || name == config.WildcardRegion || name == parent {
+		if !isValidRegionName(name) || name == config.WildcardRegion || config.SameRegion(name, parent) {
 			return "Err - unable to put"
+		}
+		if existing, ok := regionByName(cfg.Regions, name); ok { // putRegion reuses "sco" for "#sco"
+			name = existing
 		}
 		return r.applyCfg(func(c *config.RepeaterConfig) { setRegionDeny(c, name, false) }, "OK - (flood allowed)")
 	case n >= 3 && sub == "remove":
@@ -675,13 +678,7 @@ func regionByName(regions []config.RepeaterRegion, name string) (string, bool) {
 	if name == config.WildcardRegion {
 		return name, true
 	}
-	name = strings.TrimPrefix(name, "#")
-	for _, rg := range regions {
-		if strings.TrimPrefix(rg.Name, "#") == name {
-			return rg.Name, true
-		}
-	}
-	return "", false
+	return config.FindRegion(regions, name)
 }
 
 // regionByPrefix is RegionMap::findByNamePrefix: exact match wins, else the last region starting with the prefix.

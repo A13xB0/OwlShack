@@ -73,5 +73,10 @@ func (r *Repeater) defaultRegionScope() *meshcore.Region {
 	if name == "" || name == config.WildcardRegion {
 		return nil
 	}
-	return r.node.Regions().Get(name)
+	for _, rg := range r.node.Regions().All() {
+		if config.SameRegion(rg.Name, name) {
+			return rg
+		}
+	}
+	return nil
 }

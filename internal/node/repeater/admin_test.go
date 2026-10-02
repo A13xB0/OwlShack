@@ -3,6 +3,7 @@ package repeater
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"strings"
 	"testing"
 	"time"
@@ -160,6 +161,31 @@ func TestRegionReads(t *testing.T) {
 	}
 	if got := r.runCLI("region remove ghost"); got != "Err - not found" {
 		t.Errorf("region remove ghost = %q, want %q", got, "Err - not found")
+	}
+}
+
+// An advert heard on air from a firmware node, scoped to #sco.
+const firmwareSCOAdvert = "104ea7000080d41ee22644b0ea3aee70958cc5f4e87a1cfdbb1f404396dc0a7be3e7030df7418affbf6aa11bcf6cde27a47cc7211ec96ca1bde9803974ef81749b3db281439c4a9b83f1c834348bbb6b403c0997a546b95fcd4a878b2c1ed40236c5a7618150aa342d0092507a5503b6f8ceff4e554d432d4d43"
+
+func TestRegionsFromConfig_BareNameIsTheHashtagRegion(t *testing.T) {
+	wire, _ := hex.DecodeString(firmwareSCOAdvert)
+	pkt, err := meshcore.PacketFromBytes(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"sco", "#sco"} {
+		named, _ := regionsFromConfig([]config.RepeaterRegion{{Name: name}})
+		rm := node.NewRegionMap()
+		rm.Add(named[0])
+		if rg := rm.FindFloodMatch(pkt); rg == nil || rg.Name != name {
+			t.Errorf("region %q does not match the firmware's #sco advert", name)
+		}
+	}
+	named, _ := regionsFromConfig([]config.RepeaterRegion{{Name: "fif"}})
+	rm := node.NewRegionMap()
+	rm.Add(named[0])
+	if rm.FindFloodMatch(pkt) != nil {
+		t.Error("region fif matched an advert scoped to #sco")
 	}
 }
 

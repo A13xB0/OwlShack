@@ -895,7 +895,9 @@ function SettingsTab({ rep, reload }: { rep: ConfigRepeater; reload: () => void 
   const regions = rep.regions ?? [];
   const addRegion = () => {
     const rn = newRegion.trim();
-    if (rn === "" || regions.some((r) => r.name === rn)) return;
+    // "sco" and "#sco" are one region, as the firmware matches names.
+    const bare = (n: string) => n.replace(/^#/, "");
+    if (rn === "" || regions.some((r) => bare(r.name) === bare(rn))) return;
     regionOp(rn, () => configApi.addRepeaterRegion(rn, false), "Region added");
   };
 

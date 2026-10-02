@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
@@ -181,6 +183,15 @@ func (c *Config) Validate() error {
 		if v := comp.PathHashSize; v != nil && (*v < MinPathHashSize || *v > MaxPathHashSize) {
 			return fmt.Errorf("companion %q: pathHashSize must be %d-%d bytes", comp.Name, MinPathHashSize, MaxPathHashSize)
 		}
+		if s := comp.FloodScope; s != "" {
+			if err := validateRegionName(s); err != nil {
+				return fmt.Errorf("companion %q floodScope: %w", comp.Name, err)
+			}
+			// "*" is no scope at all, and a "$" region's key cannot be derived from its name.
+			if s == WildcardRegion || strings.HasPrefix(s, "$") {
+				return fmt.Errorf("companion %q: floodScope %q must be a region name, not \"*\" or a private \"$\" region", comp.Name, s)
+			}
+		}
 		switch comp.DMPolicyOrDefault() {
 		case DMPolicyContacts, DMPolicyAllowlist, DMPolicyAnyone:
 		default:
@@ -208,6 +219,10 @@ func (c *Config) Validate() error {
 				}
 			}
 		}
+	}
+
+	if err := validateAppPorts(c); err != nil {
+		return err
 	}
 
 	// The repeater's name shares the companion namespace, and it can't reuse a companion's private key.
@@ -242,26 +257,12 @@ func (c *Config) Validate() error {
 			if r.DefaultRegion == WildcardRegion {
 				return fmt.Errorf(`repeater %q: defaultRegion cannot be "*"`, r.Name)
 			}
-			found := false
-			for _, rg := range r.Regions {
-				if rg.Name == r.DefaultRegion {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if _, found := FindRegion(r.Regions, r.DefaultRegion); !found {
 				return fmt.Errorf("repeater %q: defaultRegion %q is not a configured region", r.Name, r.DefaultRegion)
 			}
 		}
 		if r.HomeRegion != "" {
-			found := false
-			for _, rg := range r.Regions {
-				if rg.Name == r.HomeRegion {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if _, found := FindRegion(r.Regions, r.HomeRegion); !found {
 				return fmt.Errorf("repeater %q: homeRegion %q is not a configured region", r.Name, r.HomeRegion)
 			}
 		}
@@ -376,4 +377,36 @@ func derefUint8(p *uint8) uint8 {
 		return 0
 	}
 	return *p
+}
+
+// validateAppPorts refuses an app port that is out of range, binds an address that is not an IP, or would collide with the web UI or another companion.
+func validateAppPorts(c *Config) error {
+	webBind, webPort := "", -1
+	if c.ListenAddr != nil {
+		if h, p, err := net.SplitHostPort(*c.ListenAddr); err == nil {
+			webBind = h
+			webPort, _ = strconv.Atoi(p)
+		}
+	}
+	for i, comp := range c.Companions {
+		a := comp.App
+		if a == nil {
+			continue
+		}
+		if a.Port < 1 || a.Port > 65535 {
+			return fmt.Errorf("companion %q: app port must be 1-65535", comp.Name)
+		}
+		if a.Bind != "" && net.ParseIP(a.Bind) == nil {
+			return fmt.Errorf("companion %q: app bind %q is not an IP address", comp.Name, a.Bind)
+		}
+		if addrsOverlap(a.Bind, a.Port, webBind, webPort) {
+			return fmt.Errorf("companion %q: app port %d is the web UI's", comp.Name, a.Port)
+		}
+		for _, other := range c.Companions[:i] {
+			if other.App != nil && addrsOverlap(a.Bind, a.Port, other.App.Bind, other.App.Port) {
+				return fmt.Errorf("companions %q and %q both take app port %d", other.Name, comp.Name, a.Port)
+			}
+		}
+	}
+	return nil
 }
