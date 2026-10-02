@@ -413,6 +413,8 @@ func reloadCompanions(ctx context.Context, oldCfg, newCfg *config.Config, runnin
 		block      config.CompanionConfig
 		reuse      *companion.Companion // nil = build fresh
 		reloadTrig bool
+		// setChannels applies the block's channels to the running node in place.
+		setChannels bool
 	}
 	newBlocks := effectiveCompanionConfigs(newCfg)
 	plans := make([]plan, 0, len(newBlocks))
@@ -422,8 +424,9 @@ func reloadCompanions(ctx context.Context, oldCfg, newCfg *config.Config, runnin
 		switch {
 		case isRunning && hadOld && blocksEqual(ob, nb):
 			plans = append(plans, plan{block: nb, reuse: inst})
-		case isRunning && hadOld && triggersOnlyChange(ob, nb):
-			plans = append(plans, plan{block: nb, reuse: inst, reloadTrig: true})
+		case isRunning && hadOld && inPlaceChange(ob, nb):
+			plans = append(plans, plan{block: nb, reuse: inst,
+				reloadTrig: !triggersEqual(ob, nb), setChannels: !channelsEqual(ob, nb)})
 		default:
 			plans = append(plans, plan{block: nb})
 		}
@@ -455,11 +458,23 @@ func reloadCompanions(ctx context.Context, oldCfg, newCfg *config.Config, runnin
 
 	for _, p := range plans {
 		if p.reuse != nil {
+			if p.setChannels {
+				var list config.ChannelList
+				if p.block.Channels != nil {
+					list = *p.block.Channels
+				}
+				if err := p.reuse.SetChannels(list); err != nil {
+					stopAll()
+					return nil, stats, fmt.Errorf("setting channels for %q: %w", p.block.Name, err)
+				}
+			}
 			if p.reloadTrig {
 				if err := p.reuse.ReloadTriggers(p.block); err != nil {
 					stopAll()
 					return nil, stats, fmt.Errorf("reloading triggers for %q: %w", p.block.Name, err)
 				}
+			}
+			if p.reloadTrig || p.setChannels {
 				stats.reloaded++
 			} else {
 				stats.kept++
@@ -533,11 +548,21 @@ func blocksEqual(a, b config.CompanionConfig) bool {
 	return err1 == nil && err2 == nil && bytes.Equal(aj, bj)
 }
 
-// triggersOnlyChange reports whether only Triggers differ — the case ReloadTriggers applies in place.
-func triggersOnlyChange(a, b config.CompanionConfig) bool {
-	a.Triggers = nil
-	b.Triggers = nil
+// inPlaceChange reports whether only Triggers and Channels differ: the running companion takes both
+// in place (ReloadTriggers, SetChannels), so an app swapping a channel slot before each post, as
+// RemoteTerm does, never restarts it.
+func inPlaceChange(a, b config.CompanionConfig) bool {
+	a.Triggers, b.Triggers = nil, nil
+	a.Channels, b.Channels = nil, nil
 	return blocksEqual(a, b)
+}
+
+func triggersEqual(a, b config.CompanionConfig) bool {
+	return blocksEqual(config.CompanionConfig{Triggers: a.Triggers}, config.CompanionConfig{Triggers: b.Triggers})
+}
+
+func channelsEqual(a, b config.CompanionConfig) bool {
+	return blocksEqual(config.CompanionConfig{Channels: a.Channels}, config.CompanionConfig{Channels: b.Channels})
 }
 
 func stopCompanions(companions []*companion.Companion) {

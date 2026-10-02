@@ -23,7 +23,7 @@ func (c *Companion) ReloadTriggers(newCfg config.CompanionConfig) error {
 		return fmt.Errorf("companion %q not started", c.cfg.Name)
 	}
 
-	// Channels are unchanged here: a config change that alters them takes the full-restart path.
+	// Channels are the node's and are set apart from this (SetChannels); triggers keep their own filters.
 	newEntries, err := c.buildTriggers(newCfg)
 	if err != nil {
 		return err

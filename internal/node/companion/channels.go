@@ -123,3 +123,29 @@ func isHashtagChannel(ch *meshcore.ChannelEntry) bool {
 	}
 	return false
 }
+
+// SetChannels makes the node's channel slots exactly list, in place: slot i holds list[i] and every
+// later slot is cleared. Nothing restarts, so a change an app makes is live before it is answered.
+func (c *Companion) SetChannels(list config.ChannelList) error {
+	entries := make([]*meshcore.ChannelEntry, len(list))
+	for i, ref := range list {
+		ch, err := channelFromRef(ref)
+		if err != nil {
+			return fmt.Errorf("channel %q: %w", ref.Name, err)
+		}
+		entries[i] = ch
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, ch := range entries {
+		if !c.node.SetChannel(i, ch) {
+			return fmt.Errorf("channel %q: slot %d is past the node's last", list[i].Name, i)
+		}
+	}
+	// SetChannel refuses a slot past the table, which is where clearing stops.
+	for i := len(entries); c.node.SetChannel(i, nil); i++ {
+	}
+	kept := append(config.ChannelList(nil), list...)
+	c.cfg.Channels = &kept
+	return nil
+}
