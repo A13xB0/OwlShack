@@ -48,11 +48,15 @@ type Contact struct {
 	LastAdvertTS uint32
 	AddedAt      time.Time
 	Metadata     ContactMetadata
+	// LastMod is when the row last changed (unix seconds), as a companion app's since-filter reads it.
+	LastMod uint32
+	// Flags is the companion app's per-contact flags byte, stored for it and not read here.
+	Flags byte
 }
 
 const contactColumns = `companion_id, peer_pubkey, name, type, lat, lon,
 	feat1, feat2, out_path, out_path_hash_size, path_hash_size, last_seen, last_advert_ts,
-	added_at, metadata`
+	added_at, metadata, lastmod, flags`
 
 func scanContact(s interface{ Scan(...any) error }) (*Contact, error) {
 	var c Contact
@@ -63,7 +67,7 @@ func scanContact(s interface{ Scan(...any) error }) (*Contact, error) {
 	if err := s.Scan(
 		&c.CompanionID, &c.PeerPubKey, &c.Name, &c.Type, &c.Lat, &c.Lon,
 		&feat1, &feat2, &outPath, &c.OutPathHashSize, &c.PathHashSize, &lastSeen, &lastAdvertTS,
-		&c.AddedAt, &metaStr,
+		&c.AddedAt, &metaStr, &c.LastMod, &c.Flags,
 	); err != nil {
 		return nil, err
 	}
@@ -85,15 +89,16 @@ type ContactRepo struct {
 func (r *ContactRepo) Add(ctx context.Context, companionID int64, peerPubKey []byte, name, contactType string) error {
 	// A re-add keeps a known name and type, and bytes per hop is set only here, from the advert heard or else the node's own size.
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO companion_contacts (companion_id, peer_pubkey, name, type, path_hash_size)
-		VALUES (?1, ?2, ?3, ?4, COALESCE(
+		INSERT INTO companion_contacts (companion_id, peer_pubkey, name, type, lastmod, path_hash_size)
+		VALUES (?1, ?2, ?3, ?4, unixepoch(), COALESCE(
 			(SELECT out_path_hash_size FROM discovered_peers WHERE pubkey = ?2 AND out_path_hash_size BETWEEN 1 AND 3),
 			(SELECT path_hash_size FROM companions WHERE id = ?1 AND path_hash_size BETWEEN 1 AND 3),
 			(SELECT path_hash_size FROM settings WHERE id = 1 AND path_hash_size BETWEEN 1 AND 3),
 			1))
 		ON CONFLICT(companion_id, peer_pubkey) DO UPDATE SET
 			name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE companion_contacts.name END,
-			type = CASE WHEN excluded.type <> '' THEN excluded.type ELSE companion_contacts.type END`,
+			type = CASE WHEN excluded.type <> '' THEN excluded.type ELSE companion_contacts.type END,
+			lastmod = unixepoch()`,
 		companionID, peerPubKey, name, contactType,
 	)
 	if err != nil {
@@ -119,8 +124,8 @@ func (r *ContactRepo) Restore(ctx context.Context, c *Contact) error {
 	_, err = r.db.ExecContext(ctx, `
 		INSERT INTO companion_contacts (
 			companion_id, peer_pubkey, name, type, lat, lon, feat1, feat2,
-			out_path, out_path_hash_size, path_hash_size, last_seen, last_advert_ts, added_at, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			out_path, out_path_hash_size, path_hash_size, last_seen, last_advert_ts, added_at, metadata, lastmod, flags)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(companion_id, peer_pubkey) DO UPDATE SET
 			name = excluded.name, type = excluded.type,
 			lat = excluded.lat, lon = excluded.lon,
@@ -131,9 +136,11 @@ func (r *ContactRepo) Restore(ctx context.Context, c *Contact) error {
 			last_seen = excluded.last_seen,
 			last_advert_ts = excluded.last_advert_ts,
 			added_at = excluded.added_at,
-			metadata = excluded.metadata`,
+			metadata = excluded.metadata,
+			lastmod = excluded.lastmod,
+			flags = excluded.flags`,
 		c.CompanionID, c.PeerPubKey, c.Name, c.Type, c.Lat, c.Lon, c.Feat1, c.Feat2,
-		c.OutPath, c.OutPathHashSize, max(c.PathHashSize, 1), lastSeen, c.LastAdvertTS, addedAt, string(meta),
+		c.OutPath, c.OutPathHashSize, max(c.PathHashSize, 1), lastSeen, c.LastAdvertTS, addedAt, string(meta), c.LastMod, c.Flags,
 	)
 	if err != nil {
 		return fmt.Errorf("restoring contact: %w", err)
@@ -157,7 +164,8 @@ func (r *ContactRepo) RefreshFromAdvert(
 			feat1          = ?,
 			feat2          = ?,
 			last_seen      = ?,
-			last_advert_ts = ?
+			last_advert_ts = ?,
+			lastmod        = unixepoch()
 		WHERE peer_pubkey = ?`,
 		name, name, contactType, contactType,
 		hasLocation, lat, hasLocation, lon,
@@ -173,12 +181,25 @@ func (r *ContactRepo) RefreshFromAdvert(
 // UpdateOutPath scopes a learned route by companion_id: companions never share a route to a peer.
 func (r *ContactRepo) UpdateOutPath(ctx context.Context, companionID int64, peerPubKey []byte, path []byte, hashSize uint8) error {
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE companion_contacts SET out_path = ?, out_path_hash_size = ?
+		UPDATE companion_contacts SET out_path = ?, out_path_hash_size = ?, lastmod = unixepoch()
 		WHERE companion_id = ? AND peer_pubkey = ?`,
 		path, hashSize, companionID, peerPubKey,
 	)
 	if err != nil {
 		return fmt.Errorf("updating contact out_path: %w", err)
+	}
+	return nil
+}
+
+// SetFlags stores the companion app's flags byte for a contact.
+func (r *ContactRepo) SetFlags(ctx context.Context, companionID int64, peerPubKey []byte, flags byte) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE companion_contacts SET flags = ?, lastmod = unixepoch()
+		WHERE companion_id = ? AND peer_pubkey = ?`,
+		flags, companionID, peerPubKey,
+	)
+	if err != nil {
+		return fmt.Errorf("setting contact flags: %w", err)
 	}
 	return nil
 }
@@ -193,7 +214,7 @@ func (r *ContactRepo) SetRoute(ctx context.Context, companionID int64, peerPubKe
 		outHashSize = 0
 	}
 	res, err := r.db.ExecContext(ctx, `
-		UPDATE companion_contacts SET out_path = ?, out_path_hash_size = ?, path_hash_size = ?
+		UPDATE companion_contacts SET out_path = ?, out_path_hash_size = ?, path_hash_size = ?, lastmod = unixepoch()
 		WHERE companion_id = ? AND peer_pubkey = ?`,
 		path, outHashSize, hashSize, companionID, peerPubKey,
 	)
@@ -209,7 +230,7 @@ func (r *ContactRepo) SetRoute(ctx context.Context, companionID int64, peerPubKe
 // SetLocation hand-sets a location; a later advert carrying a position overwrites it (RefreshFromAdvert).
 func (r *ContactRepo) SetLocation(ctx context.Context, companionID int64, peerPubKey []byte, lat, lon int32) error {
 	_, err := r.db.ExecContext(ctx, `
-		UPDATE companion_contacts SET lat = ?, lon = ?
+		UPDATE companion_contacts SET lat = ?, lon = ?, lastmod = unixepoch()
 		WHERE companion_id = ? AND peer_pubkey = ?`,
 		lat, lon, companionID, peerPubKey,
 	)
