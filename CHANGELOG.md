@@ -45,6 +45,9 @@ each peer, and who the MQTT feed is published as.
   the CLI's `region` commands and the Repeater page all find the region whichever way it is
   written, adding `#sco` beside `sco` changes the existing region instead of adding a second, and
   removing it by either name clears a default that pointed at it.
+- **The MQTT page shows the companion that feeds MQTT.** It often showed the first companion
+  instead, and saving the page then moved the feed to it. The stored setting was never wrong
+  until that save.
 
 ## v1.5.0 - 2026-10-01
 
