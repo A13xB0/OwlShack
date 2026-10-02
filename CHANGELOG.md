@@ -5,6 +5,17 @@ top until tagged.
 
 ## Unreleased
 
+Schema `user_version` 21 to 22: adds each companion's flood scope.
+
+### Added
+
+- **A flood scope for each companion.** Set a region such as `sco` on the companion's settings and
+  everything it floods goes out scoped to it: channel messages, DMs and bot replies, ACKs, path
+  returns, replies to requests, adverts, and logins and requests to repeaters. Repeaters that
+  keep a region closed to unscoped traffic now relay what the companion sends, as they do for a
+  phone companion with a default scope set. Direct sends are never scoped, and a companion with no
+  scope floods unscoped as before.
+
 ### Fixed
 
 - **A region named without a `#` now relays the same traffic firmware repeaters do.** A region

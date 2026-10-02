@@ -16,6 +16,7 @@ type Companion struct {
 	Longitude      *float64
 	AdvertInterval *int
 	PathHashSize   *int // nil = inherit the global settings default
+	FloodScope     string
 	// DMPolicy is who may DM this companion: "contacts", "allowlist" or "anyone".
 	DMPolicy string
 	// DMAllow is the "allowlist" policy's pubkeys, newline-encoded in the column.
@@ -32,7 +33,7 @@ func scanCompanion(s interface{ Scan(...any) error }) (*Companion, error) {
 	var c Companion
 	var dmAllow string
 	if err := s.Scan(&c.ID, &c.Name, &c.PrivateKey, &c.PubKey, &c.Latitude, &c.Longitude, &c.AdvertInterval, &c.PathHashSize, &c.DMPolicy, &dmAllow,
-		&c.TelemBase, &c.TelemLoc, &c.TelemEnv); err != nil {
+		&c.TelemBase, &c.TelemLoc, &c.TelemEnv, &c.FloodScope); err != nil {
 		return nil, err
 	}
 	c.DMAllow = decodeList(dmAllow)
@@ -40,7 +41,7 @@ func scanCompanion(s interface{ Scan(...any) error }) (*Companion, error) {
 }
 
 const companionCols = `id, name, private_key, pubkey, latitude, longitude, advert_interval, path_hash_size, dm_policy, dm_allow,
-	telem_base, telem_loc, telem_env`
+	telem_base, telem_loc, telem_env, flood_scope`
 
 // DMPolicyContacts is the pre-column behaviour and the value written for an unset policy.
 const DMPolicyContacts = "contacts"
@@ -108,10 +109,10 @@ func (r *CompanionRepo) IDByName(ctx context.Context, name string) (int64, error
 func (r *CompanionRepo) Create(ctx context.Context, c *Companion) error {
 	res, err := r.db.ExecContext(ctx, `
 		INSERT INTO companions (name, private_key, pubkey, latitude, longitude, advert_interval, path_hash_size, dm_policy, dm_allow,
-			telem_base, telem_loc, telem_env)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			telem_base, telem_loc, telem_env, flood_scope)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.Name, c.PrivateKey, c.PubKey, c.Latitude, c.Longitude, c.AdvertInterval, c.PathHashSize, dmPolicyOrDefault(c.DMPolicy), encodeList(c.DMAllow),
-		telemModeOrDefault(c.TelemBase), telemModeOrDefault(c.TelemLoc), telemModeOrDefault(c.TelemEnv))
+		telemModeOrDefault(c.TelemBase), telemModeOrDefault(c.TelemLoc), telemModeOrDefault(c.TelemEnv), c.FloodScope)
 	if err != nil {
 		return fmt.Errorf("inserting companion: %w", err)
 	}
@@ -125,10 +126,10 @@ func (r *CompanionRepo) Create(ctx context.Context, c *Companion) error {
 func (r *CompanionRepo) Update(ctx context.Context, c *Companion) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE companions SET name=?, private_key=?, pubkey=?, latitude=?, longitude=?, advert_interval=?, path_hash_size=?, dm_policy=?, dm_allow=?,
-			telem_base=?, telem_loc=?, telem_env=?
+			telem_base=?, telem_loc=?, telem_env=?, flood_scope=?
 		WHERE id=?`,
 		c.Name, c.PrivateKey, c.PubKey, c.Latitude, c.Longitude, c.AdvertInterval, c.PathHashSize, dmPolicyOrDefault(c.DMPolicy), encodeList(c.DMAllow),
-		telemModeOrDefault(c.TelemBase), telemModeOrDefault(c.TelemLoc), telemModeOrDefault(c.TelemEnv), c.ID)
+		telemModeOrDefault(c.TelemBase), telemModeOrDefault(c.TelemLoc), telemModeOrDefault(c.TelemEnv), c.FloodScope, c.ID)
 	if err != nil {
 		return fmt.Errorf("updating companion: %w", err)
 	}

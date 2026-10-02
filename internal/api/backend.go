@@ -564,6 +564,7 @@ type CompanionInput struct {
 	Longitude      *float64 `json:"longitude"`
 	AdvertInterval *int     `json:"advertInterval"`
 	PathHashSize   *int     `json:"pathHashSize"`
+	FloodScope     *string  `json:"floodScope"` // nil = keep (update) / unscoped (create)
 }
 
 // CompanionTelemetryInput is who may read each class: "deny", "selected" or "contacts".
