@@ -530,13 +530,29 @@ func effectiveCompanionConfigs(cfg *config.Config) []config.CompanionConfig {
 	copy(blocks, cfg.Companions)
 	for i := range blocks {
 		if blocks[i].Name == mqttNode && mqttNode != "" {
-			blocks[i].Mqtt = cfg.Mqtt
+			blocks[i].Mqtt = mqttFor(cfg)
 		}
 		if blocks[i].PathHashSize == nil {
 			blocks[i].PathHashSize = &pathHash
 		}
 	}
 	return blocks
+}
+
+// mqttFor is the mqtt block the node companion runs: the top-level one, with the repeater's name and key as its origin when the feed is published as the repeater.
+func mqttFor(cfg *config.Config) *config.MqttConfig {
+	m := *cfg.Mqtt
+	// Origin is only ever derived here; one that arrived in an imported file is not trusted.
+	m.Origin = nil
+	if m.AsRepeater() {
+		if cfg.Repeater == nil {
+			// Validate refuses this, so only a hand-edited database gets here; publish as the companion rather than not at all.
+			slog.Warn("mqtt identity is repeater but no repeater is configured; publishing as the companion")
+		} else {
+			m.Origin = &config.MqttOrigin{Name: cfg.Repeater.Name, PrivateKey: cfg.Repeater.PrivateKey}
+		}
+	}
+	return &m
 }
 
 // blocksEqual compares blocks as JSON; a marshal error reports "not equal", erring towards a restart.
