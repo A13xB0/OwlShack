@@ -265,6 +265,7 @@ function CompanionEditor({
   const [advertInterval, setAdvertInterval] = useState(
     companion?.advertInterval != null ? String(companion.advertInterval) : "",
   );
+  const [floodScope, setFloodScope] = useState(companion?.floodScope ?? "");
   const { items: peers } = useApiList<PickablePeer>(
     "/api/peers",
     "Failed to load peers",
@@ -288,6 +289,7 @@ function CompanionEditor({
           advertInterval:
             advertInterval === "" ? null : parseInt(advertInterval, 10) || 0,
           pathHashSize: pathHashSize === "" ? null : parseInt(pathHashSize, 10),
+          floodScope: floodScope.trim(),
           dmPolicy,
           dmAllow: dmAllow.map((k) => k.trim()).filter(Boolean),
         },
@@ -386,6 +388,13 @@ function CompanionEditor({
               hint="width of each hop hash in our flood packets"
             />
           </div>
+          <TextField
+            label="Flood scope"
+            value={floodScope}
+            onChange={setFloodScope}
+            placeholder="blank = unscoped"
+            hint="region its floods go out in, such as sco, so repeaters that only relay that region pass them on"
+          />
 
           <SelectField
             label="Who can DM this companion"
