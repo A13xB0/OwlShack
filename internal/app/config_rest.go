@@ -119,7 +119,15 @@ func (b *backend) SaveMqtt(ctx context.Context, in api.MqttInput) error {
 		Email:           in.Email,
 	}
 	return b.configMutate(ctx,
-		func(rows *configRows) { rows.mqtt = &row },
+		func(rows *configRows) {
+			// Left out, the identity is kept, so a client that predates it cannot reset it.
+			if in.Identity != nil {
+				row.Identity = mqttIdentity(*in.Identity)
+			} else if rows.mqtt != nil {
+				row.Identity = rows.mqtt.Identity
+			}
+			rows.mqtt = &row
+		},
 		func(st *store.Store) error { return st.Mqtt.Set(ctx, &row) },
 	)
 }
@@ -548,9 +556,22 @@ func (b *backend) RemoveRepeaterRegion(ctx context.Context, name string) error {
 }
 
 func (b *backend) DeleteRepeater(ctx context.Context) error {
+	// The feed outlives the repeater it was published as, as it outlives a deleted node companion.
+	var mqtt *store.MqttSettings
 	return b.configMutate(ctx,
-		func(rows *configRows) { rows.repeater = nil },
+		func(rows *configRows) {
+			rows.repeater = nil
+			if rows.mqtt != nil && rows.mqtt.Identity == config.MqttIdentityRepeater {
+				rows.mqtt.Identity = ""
+				mqtt = rows.mqtt
+			}
+		},
 		func(st *store.Store) error {
+			if mqtt != nil {
+				if err := st.Mqtt.Set(ctx, mqtt); err != nil {
+					return err
+				}
+			}
 			if err := st.RepeaterACL.Clear(ctx); err != nil { // drop admin-over-mesh clients
 				return err
 			}
