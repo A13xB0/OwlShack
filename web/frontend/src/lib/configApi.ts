@@ -116,6 +116,7 @@ export interface ConfigCompanion {
   longitude: number | null;
   advertInterval: number | null;
   pathHashSize: number | null; // null = inherit the global default
+  floodScope: string; // "" = unscoped
   dmPolicy: string; // contacts | allowlist | anyone
   dmAllow: string[] | null;
   // Who may read each class of telemetry: deny | selected | contacts.
@@ -301,6 +302,7 @@ export interface CompanionInput {
   longitude?: number | null;
   advertInterval?: number | null;
   pathHashSize?: number | null; // null = inherit the global default
+  floodScope?: string; // omit = keep (update) / unscoped (create); "" = unscoped
   dmPolicy?: string;
   dmAllow?: string[] | null;
 }
