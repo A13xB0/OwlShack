@@ -158,6 +158,7 @@ func assembleFromRows(rows *configRows) *config.Config {
 			Longitude:      c.Longitude,
 			AdvertInterval: c.AdvertInterval,
 			PathHashSize:   c.PathHashSize,
+			FloodScope:     c.FloodScope,
 			DMPolicy:       emptyToNil(c.DMPolicy),
 			DMAllow:        sliceToPtr(c.DMAllow),
 
@@ -347,6 +348,7 @@ func writeConfigToTables(ctx context.Context, st *store.Store, cfg *config.Confi
 			Longitude:      cc.Longitude,
 			AdvertInterval: cc.AdvertInterval,
 			PathHashSize:   cc.PathHashSize,
+			FloodScope:     cc.FloodScope,
 			DMPolicy:       cc.DMPolicyOrDefault(),
 			DMAllow:        ptrToSlice(cc.DMAllow),
 

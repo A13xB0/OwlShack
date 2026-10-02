@@ -7,6 +7,7 @@ import (
 	"github.com/meshcore-go/meshcore-go/node"
 
 	"github.com/meshcore-go/OwlShack/internal/config"
+	"github.com/meshcore-go/OwlShack/internal/meshpath"
 	"github.com/meshcore-go/OwlShack/internal/sensor"
 )
 
@@ -144,6 +145,7 @@ func (c *Companion) sendReqReply(reqPkt *meshcore.Packet, peerPubKey, secret, pl
 		if err != nil {
 			return err
 		}
+		meshpath.ScopeFlood(c.node, reply)
 		return c.node.SendPacketDelayed(reply, node.PriorityFloodRelay, serverReplyDelay)
 	}
 
@@ -175,5 +177,6 @@ func (c *Companion) sendReqReply(reqPkt *meshcore.Packet, peerPubKey, secret, pl
 		reply.Path = outPath
 		reply.PathLength = (hs-1)<<6 | byte(len(outPath)/int(hs))
 	}
+	meshpath.ScopeFlood(c.node, reply)
 	return c.node.SendPacketDelayed(reply, node.PrioritySend, serverReplyDelay)
 }

@@ -200,6 +200,9 @@ func (b *backend) SaveCompanion(ctx context.Context, in api.CompanionInput) (int
 				DMPolicy:     in.DMPolicy, DMAllow: in.DMAllow,
 			}
 			row.PrivateKey = key
+			if in.FloodScope != nil {
+				row.FloodScope = *in.FloodScope
+			}
 			// Telemetry modes have their own endpoint, so an edit from any other form must carry them through.
 			for _, c := range rows.companions {
 				if c.ID != in.ID || in.ID == 0 {
@@ -209,6 +212,9 @@ func (b *backend) SaveCompanion(ctx context.Context, in api.CompanionInput) (int
 					row.PrivateKey = c.PrivateKey
 				}
 				row.TelemBase, row.TelemLoc, row.TelemEnv = c.TelemBase, c.TelemLoc, c.TelemEnv
+				if in.FloodScope == nil {
+					row.FloodScope = c.FloodScope
+				}
 			}
 			row.PubKey, _ = config.PubKeyHexFromSeed(row.PrivateKey)
 

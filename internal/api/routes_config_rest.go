@@ -72,6 +72,7 @@ type companionDTO struct {
 	Longitude      *float64 `json:"longitude"`
 	AdvertInterval *int     `json:"advertInterval"`
 	PathHashSize   *int     `json:"pathHashSize"`
+	FloodScope     string   `json:"floodScope"`
 	DMPolicy       string   `json:"dmPolicy"`
 	DMAllow        []string `json:"dmAllow"`
 	// Telemetry* is who may read each class: "deny", "selected" or "contacts".
@@ -121,8 +122,8 @@ func companionToDTO(c store.Companion) companionDTO {
 	return companionDTO{
 		ID: c.ID, Name: c.Name, PubKey: c.PubKey, PrivateKeySet: c.PrivateKey != "",
 		Latitude: c.Latitude, Longitude: c.Longitude, AdvertInterval: c.AdvertInterval,
-		PathHashSize: c.PathHashSize,
-		DMPolicy:     c.DMPolicy, DMAllow: c.DMAllow,
+		PathHashSize: c.PathHashSize, FloodScope: c.FloodScope,
+		DMPolicy: c.DMPolicy, DMAllow: c.DMAllow,
 		TelemetryBase: c.TelemBase, TelemetryLocation: c.TelemLoc, TelemetryEnvironment: c.TelemEnv,
 	}
 }

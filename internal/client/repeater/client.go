@@ -13,6 +13,7 @@ import (
 	meshcore "github.com/meshcore-go/meshcore-go"
 	"github.com/meshcore-go/meshcore-go/node"
 
+	"github.com/meshcore-go/OwlShack/internal/meshpath"
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
@@ -222,12 +223,14 @@ func (rm *Client) routedPacket(peer *node.Peer, payloadType byte, payload []byte
 	outPath, hashSize := learnedRoute(peer)
 	pub := peer.Identity.PublicKey()
 	routeType, pathLen := routeForPeer(outPath, hashSize, rm.bytesPerHop(pub[:]))
-	return &meshcore.Packet{
+	pkt := &meshcore.Packet{
 		Header:     meshcore.MakeHeader(routeType, payloadType, 0),
 		PathLength: pathLen,
 		Path:       outPath,
 		Payload:    payload,
-	}, outPath, hashSize
+	}
+	meshpath.ScopeFlood(rm.node, pkt)
+	return pkt, outPath, hashSize
 }
 
 // roundtripRequest awaits the tagged response; storeSecret puts the secret on the pending entry for sessionless matching.

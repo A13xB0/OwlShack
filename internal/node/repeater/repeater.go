@@ -297,7 +297,7 @@ func regionsFromConfig(cfg []config.RepeaterRegion) (named []*meshcore.Region, w
 			}
 			continue
 		}
-		reg := meshcore.NewRegionFromKey(rg.Name, meshcore.NewRegionFromHashtag(rg.Name).Key)
+		reg := config.ScopeRegion(rg.Name)
 		if rg.DenyFlood {
 			reg.Flags |= meshcore.RegionDenyFlood
 		}

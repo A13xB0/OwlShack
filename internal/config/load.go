@@ -181,6 +181,15 @@ func (c *Config) Validate() error {
 		if v := comp.PathHashSize; v != nil && (*v < MinPathHashSize || *v > MaxPathHashSize) {
 			return fmt.Errorf("companion %q: pathHashSize must be %d-%d bytes", comp.Name, MinPathHashSize, MaxPathHashSize)
 		}
+		if s := comp.FloodScope; s != "" {
+			if err := validateRegionName(s); err != nil {
+				return fmt.Errorf("companion %q floodScope: %w", comp.Name, err)
+			}
+			// "*" is no scope at all, and a "$" region's key cannot be derived from its name.
+			if s == WildcardRegion || strings.HasPrefix(s, "$") {
+				return fmt.Errorf("companion %q: floodScope %q must be a region name, not \"*\" or a private \"$\" region", comp.Name, s)
+			}
+		}
 		switch comp.DMPolicyOrDefault() {
 		case DMPolicyContacts, DMPolicyAllowlist, DMPolicyAnyone:
 		default:

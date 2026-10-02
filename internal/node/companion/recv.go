@@ -40,6 +40,7 @@ func (c *Companion) sendDMAck(pkt *meshcore.Packet, senderPubKey []byte, sharedS
 			c.log.Debug("failed to build path return for DM ACK", "error", err)
 			return
 		}
+		meshpath.ScopeFlood(c.node, pathReturn)
 		if err := c.node.SendPacketDelayed(pathReturn, node.PriorityFloodRelay, dmAckDelay); err != nil {
 			c.log.Debug("failed to send DM ACK (path return)", "error", err)
 		}
@@ -61,6 +62,7 @@ func (c *Companion) sendDMAck(pkt *meshcore.Packet, senderPubKey []byte, sharedS
 			ackPkt.PathLength = (hs-1)<<6 | byte(len(outPath)/int(hs))
 		}
 
+		meshpath.ScopeFlood(c.node, ackPkt)
 		if err := c.node.SendPacketDelayed(ackPkt, node.PriorityFloodRelay, dmAckDelay); err != nil {
 			c.log.Debug("failed to send DM ACK", "error", err)
 		}
@@ -525,6 +527,7 @@ func (c *Companion) registerPacketHandlers() {
 			c.repeaters.HandleCLIResponse(senderKey, text)
 			if pkt.IsRouteFlood() { // firmware: teach the sender our path (no ACK as extra)
 				if pr, err := c.buildPathReturn(senderPubKey, sharedSecret, pkt.Path, pkt.PathLength, 0, nil); err == nil {
+					meshpath.ScopeFlood(c.node, pr)
 					if err := c.node.SendPacketDelayed(pr, node.PriorityFloodRelay, 0); err != nil {
 						c.log.Debug("failed to send CLI path return", "error", err)
 					}
@@ -862,6 +865,7 @@ func (c *Companion) sendReciprocalPathReturn(peerPubKey, secret []byte, pkt *mes
 		return
 	}
 	meshpath.Direct(rpath, learnedPath, hashSize)
+	meshpath.ScopeFlood(c.node, rpath)
 	if err := c.node.SendPacketDelayed(rpath, node.PriorityFloodRelay, reciprocalPathDelay); err != nil {
 		c.log.Debug("failed to send reciprocal path return", "error", err)
 		return
