@@ -368,7 +368,8 @@ echo inside `retryTimeout` means a resend, up to `maxRetries`.
 
 Channels are public or hashtag channels named directly (`Public`, `#general`),
 or private channels carrying a shared key. `Public` is the well-known channel
-every companion joins.
+every companion joins, except one that takes app connections and lists its
+channels: those are its radio's slots, kept as listed.
 
 ### Failover replies
 
