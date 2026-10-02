@@ -465,6 +465,7 @@ data. Brokers are managed on the MQTT page.
 | Bridge field | Description |
 |--------------|-------------|
 | `node` | Companion that feeds the bridge, exactly one (empty = the first) |
+| `identity` | Who the feed is published as: `companion` (default) or `repeater`, which signs tokens and reports with the repeater's key and name, as a firmware repeater running meshcoretomqtt does |
 | `enabled` | Whether the bridge runs |
 | `iataCode` | Location identifier, e.g. an airport code |
 | `statusInterval` | Seconds between status publishes (default `300`) |
