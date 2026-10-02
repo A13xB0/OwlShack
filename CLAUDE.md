@@ -12,6 +12,7 @@ CoreScope), persists to SQLite, and serves a React SPA on `:8080`.
 | [docs/config-and-storage.md](./docs/config-and-storage.md) | Config tables, `/api/config/*`, backup/restore, monitoring, REST endpoint list |
 | [docs/frontend.md](./docs/frontend.md) | Styling system, page patterns, mobile, PWA |
 | [docs/mqtt-and-radio.md](./docs/mqtt-and-radio.md) | MQTT wire schema, duty cycle, path hash size |
+| [docs/companion-app-server.md](./docs/companion-app-server.md) | The TCP port companion apps use: sessions, the offline queue, what departs from firmware |
 
 Also: [README.md](./README.md) (public intro), `s.routes()` in
 [`internal/api/server.go`](./internal/api/server.go) (**authoritative** endpoint

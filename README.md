@@ -331,10 +331,21 @@ Companions page.
 | `latitude` / `longitude` | Advertised position (decimal degrees) |
 | `advertInterval` | Seconds between adverts; `0` = never |
 | `floodScope` | Region every flood it sends goes out in, such as `sco`; empty floods unscoped |
+| `app` | `port`, `bind` and `allowKeyExport`: a TCP port companion apps drive this companion on |
 | `channels` | Channels to join |
 | `trigger` | Triggers attached to this companion |
 | `dmPolicy` | Who may DM this companion: `contacts` (default), `allowlist` or `anyone` |
 | `dmAllow` | Public keys the `allowlist` policy accepts, full or a leading prefix |
+
+### Companion apps
+
+Give a companion an app port and the MeshCore app, RemoteTerm, MeshMonitor, meshcore-cli and the
+libraries behind them can drive it over TCP, as they drive a WiFi companion radio: contacts,
+channels, DMs, repeater logins and admin, traces and the rest. One app at a time per companion; a
+new connection replaces the old one. Settings an app cannot change on a shared radio (frequency,
+power) are accepted and left alone. The protocol has no password, so keep the port on a network
+you trust. See [docs/companion-app-server.md](./docs/companion-app-server.md) for what departs
+from firmware.
 
 ### Triggers
 

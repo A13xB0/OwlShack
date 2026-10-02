@@ -5,9 +5,20 @@ top until tagged.
 
 ## Unreleased
 
-Schema `user_version` 21 to 22: adds each companion's flood scope.
+Schema `user_version` 21 to 23: adds each companion's flood scope, its companion app connection
+and the preferences an app sets, when each contact last changed, and the last advert heard from
+each peer.
 
 ### Added
+
+- **Companion apps can drive a companion.** Give a companion an app port and the MeshCore app,
+  RemoteTerm, MeshMonitor and meshcore-cli connect to it over TCP as they do to a WiFi companion
+  radio: contacts, channels, DMs and channel posts, repeater and room logins, status, telemetry,
+  traces, signing. Messages that arrive while no app is connected wait for it. An app stays
+  connected while OwlShack reloads, and the Companions page shows which app is on each port.
+  Frequency and power are shared with every node here, so an app that sets them is told yes and
+  nothing changes. The protocol has no password: anyone who can reach the port can send as the
+  companion.
 
 - **A flood scope for each companion.** Set a region such as `sco` on the companion's settings and
   everything it floods goes out scoped to it: channel messages, DMs and bot replies, ACKs, path
