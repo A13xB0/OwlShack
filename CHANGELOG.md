@@ -3,6 +3,16 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
+## Unreleased
+
+### Fixed
+
+- **A region named without a `#` now relays the same traffic firmware repeaters do.** A region
+  such as `sco` is the `#sco` hashtag region, as on firmware, so the repeater re-floods packets
+  that firmware nodes scope to it and scopes its own adverts so they relay. Before, `sco` and `#sco`
+  were two different regions and only `#sco` matched what other nodes sent. Regions already
+  written with a `#` are unchanged.
+
 ## v1.5.0 - 2026-10-01
 
 Baseline `v1.4.2`. Sensors on the Pi, sent over the mesh; bytes per hop and one Path window for

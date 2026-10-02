@@ -285,7 +285,7 @@ func (r *Repeater) Stop() error {
 	return nil
 }
 
-// regionsFromConfig derives each named scope's key from its name (SHA256(name)[:16], firmware getAutoKeyFor); "*" is never a named region.
+// regionsFromConfig derives each named scope's key as RegionMap::getTransportKeysFor does: a bare name is the "#name" hashtag region; "*" is never a named region.
 func regionsFromConfig(cfg []config.RepeaterRegion) (named []*meshcore.Region, wildcardFlags uint8) {
 	wildcardFlags = meshcore.RegionDenyFlood // no "*" entry ⇒ don't relay unscoped flood
 	for _, rg := range cfg {
@@ -297,7 +297,7 @@ func regionsFromConfig(cfg []config.RepeaterRegion) (named []*meshcore.Region, w
 			}
 			continue
 		}
-		reg := meshcore.NewRegionFromKey(rg.Name, meshcore.DeriveRegionKey(rg.Name))
+		reg := meshcore.NewRegionFromKey(rg.Name, meshcore.NewRegionFromHashtag(rg.Name).Key)
 		if rg.DenyFlood {
 			reg.Flags |= meshcore.RegionDenyFlood
 		}
