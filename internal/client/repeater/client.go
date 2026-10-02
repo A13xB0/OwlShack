@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
 	"github.com/meshcore-go/meshcore-go/node"
 
+	"github.com/meshcore-go/OwlShack/internal/meshpath"
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
@@ -49,6 +51,8 @@ type Session struct {
 type pendingRequest struct {
 	ch      chan []byte
 	created time.Time
+	// paths hears the route a flooded request's PATH-wrapped reply taught us; nil when nobody asked.
+	paths chan PathReply
 
 	// Set for sessionless requests so the response can be matched and decrypted without a session.
 	sharedSecret   []byte
@@ -93,6 +97,8 @@ type Client struct {
 
 	tsMu   sync.Mutex
 	lastTS uint32
+
+	appHooks atomic.Pointer[AppHooks]
 }
 
 // UniqueTimestamp mirrors the firmware's getCurrentTimeUnique(): a remote node drops a timestamp <= the last one it saw.
@@ -122,6 +128,9 @@ func NewClient(n *node.Node, st *store.Store, companionID int64, log *slog.Logge
 }
 
 func (rm *Client) persistOutPath(pubkey []byte, path []byte, hashSize uint8) {
+	if h := rm.hooks().PathLearned; h != nil && path != nil && len(pubkey) == 32 {
+		h([32]byte(pubkey))
+	}
 	rm.store.WriteAsync(func() {
 		if err := rm.store.Contacts.UpdateOutPath(context.Background(), rm.companionID, pubkey, path, hashSize); err != nil {
 			rm.log.Error("failed to persist out_path", "error", err)
@@ -222,12 +231,14 @@ func (rm *Client) routedPacket(peer *node.Peer, payloadType byte, payload []byte
 	outPath, hashSize := learnedRoute(peer)
 	pub := peer.Identity.PublicKey()
 	routeType, pathLen := routeForPeer(outPath, hashSize, rm.bytesPerHop(pub[:]))
-	return &meshcore.Packet{
+	pkt := &meshcore.Packet{
 		Header:     meshcore.MakeHeader(routeType, payloadType, 0),
 		PathLength: pathLen,
 		Path:       outPath,
 		Payload:    payload,
-	}, outPath, hashSize
+	}
+	meshpath.ScopeFlood(rm.node, pkt)
+	return pkt, outPath, hashSize
 }
 
 // roundtripRequest awaits the tagged response; storeSecret puts the secret on the pending entry for sessionless matching.

@@ -1,6 +1,7 @@
 package repeater
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -26,6 +27,23 @@ func (rm *Client) SendRoomLogin(pubkeyHex, password string, syncSince uint32, ti
 }
 
 func (rm *Client) sendLogin(pubkeyHex, password string, roomSyncSince *uint32, timeout time.Duration) (*LoginResult, error) {
+	p, err := rm.StartLogin(pubkeyHex, password, roomSyncSince, timeout)
+	if err != nil {
+		return nil, err
+	}
+	data, err := p.Wait(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("login timed out after %s", p.Timeout)
+	}
+	sess := rm.Session(pubkeyHex)
+	if sess == nil || data == nil {
+		return nil, fmt.Errorf("login reply opened no session")
+	}
+	return &LoginResult{Success: true, IsAdmin: sess.IsAdmin, Permissions: sess.Permissions, Role: sess.Role}, nil
+}
+
+// StartLogin sends a login and returns at once; a reply opens the session, and a timeout on a learned route drops the route.
+func (rm *Client) StartLogin(pubkeyHex, password string, roomSyncSince *uint32, floor time.Duration) (*Pending, error) {
 	pubkeyBytes, err := hex.DecodeString(pubkeyHex)
 	if err != nil {
 		return nil, fmt.Errorf("invalid pubkey hex: %w", err)
@@ -94,7 +112,7 @@ func (rm *Client) sendLogin(pubkeyHex, password string, roomSyncSince *uint32, t
 	rm.pendingLogins = append(rm.pendingLogins, pl)
 	rm.loginMu.Unlock()
 
-	defer func() {
+	unregister := func() {
 		rm.loginMu.Lock()
 		for i, p := range rm.pendingLogins {
 			if p == pl {
@@ -103,19 +121,30 @@ func (rm *Client) sendLogin(pubkeyHex, password string, roomSyncSince *uint32, t
 			}
 		}
 		rm.loginMu.Unlock()
-	}()
+	}
 
 	pkt, outPath, hashSize := rm.routedPacket(peer, meshcore.PayloadTypeAnonReq, payload)
 
 	if err := rm.node.SendPacket(pkt); err != nil {
+		unregister()
 		return nil, fmt.Errorf("sending login: %w", err)
 	}
 
-	wait := rm.replyTimeout(len(payload), outPath, hashSize, timeout)
+	wait := rm.replyTimeout(len(payload), outPath, hashSize, floor)
 	rm.log.Debug("login sent", "peer", pubkeyHex[:12], "wait", wait)
 
-	select {
-	case data := <-resultCh:
+	settle := func(data []byte) {
+		unregister()
+		if data == nil {
+			// A login that times out on a route drops it so the retry floods, as the firmware's path discovery does (companion MyMesh.cpp:1613-1616); a lost mid-session reply does not.
+			if outPath != nil {
+				rm.log.Debug("login timed out on a learned route, clearing it so the retry floods",
+					"peer", pubkeyHex[:12], "path", hex.EncodeToString(outPath))
+				rm.node.Peers().ResetOutPath(peerIdentity.PublicKey())
+				rm.persistOutPath(pubkeyBytes, nil, 0)
+			}
+			return
+		}
 		isAdmin := len(data) > 6 && data[6] == 1
 		perms := 0
 		if len(data) > 7 {
@@ -146,15 +175,6 @@ func (rm *Client) sendLogin(pubkeyHex, password string, roomSyncSince *uint32, t
 			localPubKey:  selfIdentity.PublicKey(),
 		}
 		rm.mu.Unlock()
-		return &LoginResult{Success: true, IsAdmin: isAdmin, Permissions: perms, Role: role}, nil
-	case <-time.After(wait):
-		// A login that times out on a route drops it so the retry floods, as the firmware's path discovery does (companion MyMesh.cpp:1613-1616); a lost mid-session reply does not.
-		if outPath != nil {
-			rm.log.Debug("login timed out on a learned route, clearing it so the retry floods",
-				"peer", pubkeyHex[:12], "path", hex.EncodeToString(outPath))
-			rm.node.Peers().ResetOutPath(peerIdentity.PublicKey())
-			rm.persistOutPath(pubkeyBytes, nil, 0)
-		}
-		return nil, fmt.Errorf("login timed out after %s", wait)
 	}
+	return &Pending{Flood: outPath == nil, Timeout: wait, reply: resultCh, settle: settle}, nil
 }

@@ -155,6 +155,15 @@ func (rm *Client) HandlePathPacket(pkt *meshcore.Packet) bool {
 			target, ok := rm.pending[tag]
 			rm.pendingMu.Unlock()
 			if ok {
+				if target.paths != nil {
+					select {
+					case target.paths <- PathReply{
+						OutPathLen: (pp.PathHashSize()-1)<<6 | pp.PathHashCount(), OutPath: returnPath,
+						InPathLen: pkt.PathLength, InPath: append([]byte(nil), pkt.Path...),
+					}:
+					default:
+					}
+				}
 				select {
 				case target.ch <- data:
 				default:
@@ -310,6 +319,11 @@ func (rm *Client) HandleTextPacket(pkt *meshcore.Packet) bool {
 
 		text := strings.TrimRight(string(plaintext[5:]), "\x00")
 		rm.HandleCLIResponse([32]byte{}, text)
+		if h := rm.hooks().CLIText; h != nil {
+			if key, err := hex.DecodeString(sess.PubKeyHex); err == nil && len(key) == 32 {
+				h([32]byte(key), binary.LittleEndian.Uint32(plaintext[:4]), text, pkt)
+			}
+		}
 		return true
 	}
 	return false
@@ -331,6 +345,7 @@ func (rm *Client) sendReciprocalPath(pkt *meshcore.Packet, peerPubKey, secret, l
 		return
 	}
 	meshpath.Direct(rpath, learnedPath, hashSize)
+	meshpath.ScopeFlood(rm.node, rpath)
 	if err := rm.node.SendPacketDelayed(rpath, node.PriorityFloodRelay, reciprocalPathDelay); err != nil {
 		rm.log.Debug("failed to send reciprocal path return", "error", err)
 		return
@@ -357,6 +372,7 @@ func (rm *Client) retryReciprocalPath(pkt *meshcore.Packet, peerPubKey [32]byte,
 		return
 	}
 	meshpath.Direct(rpath, outPath, hashSize)
+	meshpath.ScopeFlood(rm.node, rpath)
 	if err := rm.node.SendPacketDelayed(rpath, node.PriorityFloodRelay, returnPathRetryDelay); err != nil {
 		rm.log.Debug("failed to send return path retry", "error", err)
 		return

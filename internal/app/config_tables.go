@@ -75,6 +75,8 @@ type configRows struct {
 	channels   []store.CompanionChannel // across all companions
 	triggers   []store.Trigger          // across all companions, with ChannelIDs
 	repeater   *store.Repeater          // the single repeater node, or nil
+	// apps holds each companion's app connection; a companion with no row takes none.
+	apps []store.CompanionApp
 }
 
 func loadConfigRows(ctx context.Context, st *store.Store) (*configRows, error) {
@@ -109,7 +111,11 @@ func loadConfigRows(ctx context.Context, st *store.Store) (*configRows, error) {
 		}
 		rep = nil // no repeater configured
 	}
-	return &configRows{settings: s, mqtt: mq, brokers: brokers, companions: comps, channels: chans, triggers: trigs, repeater: rep}, nil
+	apps, err := st.CompanionApps.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading companion apps: %w", err)
+	}
+	return &configRows{settings: s, mqtt: mq, brokers: brokers, companions: comps, channels: chans, triggers: trigs, repeater: rep, apps: apps}, nil
 }
 
 // assembleFromRows is pure, so the write path can validate a proposed edit before persisting it.
@@ -158,12 +164,18 @@ func assembleFromRows(rows *configRows) *config.Config {
 			Longitude:      c.Longitude,
 			AdvertInterval: c.AdvertInterval,
 			PathHashSize:   c.PathHashSize,
+			FloodScope:     c.FloodScope,
 			DMPolicy:       emptyToNil(c.DMPolicy),
 			DMAllow:        sliceToPtr(c.DMAllow),
 
 			TelemetryBase:        emptyToNil(c.TelemBase),
 			TelemetryLocation:    emptyToNil(c.TelemLoc),
 			TelemetryEnvironment: emptyToNil(c.TelemEnv),
+		}
+		for _, a := range rows.apps {
+			if a.CompanionID == c.ID && a.Port > 0 {
+				comp.App = &config.AppConnection{Port: a.Port, Bind: a.Bind, AllowKeyExport: a.AllowKeyExport}
+			}
 		}
 		if chs := chansByComp[c.ID]; len(chs) > 0 {
 			list := make(config.ChannelList, 0, len(chs))
@@ -347,6 +359,7 @@ func writeConfigToTables(ctx context.Context, st *store.Store, cfg *config.Confi
 			Longitude:      cc.Longitude,
 			AdvertInterval: cc.AdvertInterval,
 			PathHashSize:   cc.PathHashSize,
+			FloodScope:     cc.FloodScope,
 			DMPolicy:       cc.DMPolicyOrDefault(),
 			DMAllow:        ptrToSlice(cc.DMAllow),
 
@@ -364,6 +377,14 @@ func writeConfigToTables(ctx context.Context, st *store.Store, cfg *config.Confi
 		}
 		keep[row.ID] = true
 		nameToID[cc.Name] = row.ID
+
+		var app config.AppConnection
+		if cc.App != nil {
+			app = *cc.App
+		}
+		if err := st.CompanionApps.SetConnection(ctx, row.ID, app.Port, app.Bind, app.AllowKeyExport); err != nil {
+			return err
+		}
 
 		if err := replaceCompanionChildren(ctx, st, row.ID, cc); err != nil {
 			return err

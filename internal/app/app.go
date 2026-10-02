@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/meshcore-go/OwlShack/internal/api"
+	"github.com/meshcore-go/OwlShack/internal/appserver"
 	"github.com/meshcore-go/OwlShack/internal/config"
 	"github.com/meshcore-go/OwlShack/internal/discover"
 	"github.com/meshcore-go/OwlShack/internal/echo"
@@ -167,6 +168,10 @@ func Run(ctx context.Context, importPath string, verbosity int) error {
 	// Long-lived across reloads: reaches the current companions through compReg, re-pointed on each reload.
 	compReg := newCompanionRegistry()
 
+	// Also long-lived: an app keeps its connection while the companions under it restart.
+	apps := appserver.New(slog.Default())
+	defer apps.Close()
+
 	mon := monitor.New(db, srv.Hub(), newMergedLister(newContactLister(compReg, db), newLinkLister(compReg, db)), slog.Default())
 	mon.RegisterCollector("repeater", newRepeaterCollector(compReg, db, slog.Default()))
 	mon.RegisterCollector("companion", newCompanionCollector(compReg, slog.Default()))
@@ -232,11 +237,13 @@ func Run(ctx context.Context, importPath string, verbosity int) error {
 	// installBackend hands the server a backend over whatever radio generation is running now.
 	installBackend := func() {
 		liveRadio.Store(ms)
-		srv.SetBackend(&backend{
+		b := &backend{
 			companions: companions, repeater: rep, db: db, stats: statsOf(ms), mux: mux,
 			reload: reload, resetModem: resetModem, discover: disc, sensors: sensorHub, telemetry: telemetry,
-			feedPreview: feedPreview,
-		})
+			feedPreview: feedPreview, apps: apps,
+		}
+		srv.SetBackend(b)
+		applyApps(apps, b, cfg)
 	}
 
 	// stopRadio tears the stack down and leaves the vars nil, which is the state startRadio recovers from.
@@ -518,7 +525,9 @@ func effectiveCompanionConfigs(cfg *config.Config) []config.CompanionConfig {
 }
 
 // blocksEqual compares blocks as JSON; a marshal error reports "not equal", erring towards a restart.
+// blocksEqual ignores the app connection: the app server re-points it at the running companion without a restart.
 func blocksEqual(a, b config.CompanionConfig) bool {
+	a.App, b.App = nil, nil
 	aj, err1 := json.Marshal(a)
 	bj, err2 := json.Marshal(b)
 	return err1 == nil && err2 == nil && bytes.Equal(aj, bj)

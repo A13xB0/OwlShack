@@ -45,3 +45,5 @@ require (
 	periph.io/x/conn/v3 v3.7.3
 	periph.io/x/host/v3 v3.8.5
 )
+
+replace github.com/meshcore-go/meshcore-go => github.com/A13xB0/meshcore-go v1.5.1-0.20261002015122-8c8ee85bd60e
