@@ -175,12 +175,14 @@ export function MqttPage() {
     setStatusInterval(String(mqtt.statusInterval ?? 300));
   }, [mqtt]);
 
-  // Default the feed node to the first companion when none is stored yet.
+  // Default the feed node to the first companion when none is stored yet. Waiting for the stored
+  // settings matters: when they and the companions land in one render, this effect still sees the
+  // empty node from before the stored one was applied, and would overwrite it.
   useEffect(() => {
-    if (nodeId === "" && companions && companions.length > 0) {
+    if (mqtt && mqtt.nodeCompanionId == null && nodeId === "" && companions && companions.length > 0) {
       setNodeId(String(companions[0].id));
     }
-  }, [companions, nodeId]);
+  }, [mqtt, companions, nodeId]);
 
   const list = brokers ?? [];
   const loading = mqttLoading || brokersLoading;

@@ -3,6 +3,14 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
+## Unreleased
+
+### Fixed
+
+- **The MQTT page shows the companion that feeds MQTT.** It often showed the first companion
+  instead, and saving the page then moved the feed to it. The stored setting was never wrong
+  until that save.
+
 ## v1.5.0 - 2026-10-01
 
 Baseline `v1.4.2`. Sensors on the Pi, sent over the mesh; bytes per hop and one Path window for
