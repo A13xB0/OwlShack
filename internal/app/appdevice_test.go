@@ -393,3 +393,47 @@ func TestAppDevice_LoginReplyIsPushed(t *testing.T) {
 		t.Errorf("no session after the login: %v", err)
 	}
 }
+
+// RemoteTerm loads its channel into slot 0 and posts straight after the OK, so the slot is live before the reply, and loading it again writes nothing.
+func TestAppDevice_ChannelIsLiveBeforeTheReply(t *testing.T) {
+	r := newAppRig(t)
+	if err := r.cli.SetChannel(r.ctx(t), 0, "", [16]byte{}); err != nil {
+		t.Fatalf("clearing slot 0: %v", err)
+	}
+	if ch, err := r.cli.GetChannel(r.ctx(t), 0); err != nil || ch.Name != "" {
+		t.Fatalf("slot 0 after clearing = %+v, %v; want blank", ch, err)
+	}
+	traffic := meshcore.NewChannelFromHashtag("#traffic")
+	if err := r.cli.SetChannel(r.ctx(t), 0, "#traffic", traffic.PSK); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.cli.SendChannelTextMessage(r.ctx(t), 0, "road closed", companion.TxtTypePlain); err != nil {
+		t.Fatalf("posting straight after loading the channel: %v", err)
+	}
+	r.air.waitSent(t, meshcore.PayloadTypeGrpTxt)
+
+	before, _ := r.st.Channels.ListByCompanion(t.Context(), r.comp.ID())
+	if err := r.cli.SetChannel(r.ctx(t), 0, "#traffic", traffic.PSK); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := r.st.Channels.ListByCompanion(t.Context(), r.comp.ID())
+	if len(before) != 1 || len(after) != 1 || before[0].ID != after[0].ID {
+		t.Errorf("reloading the same channel rewrote it: %+v -> %+v", before, after)
+	}
+}
+
+func TestInPlaceChange(t *testing.T) {
+	a := config.ChannelList{{Name: "Public"}}
+	b := config.ChannelList{{Name: "#traffic"}}
+	base := config.CompanionConfig{Name: "bot", Channels: &a}
+	chans := base
+	chans.Channels = &b
+	renamed := base
+	renamed.Name = "bot2"
+	if !inPlaceChange(base, chans) || channelsEqual(base, chans) || !triggersEqual(base, chans) {
+		t.Error("a channel-only change is not applied in place")
+	}
+	if inPlaceChange(base, renamed) {
+		t.Error("a rename was planned in place")
+	}
+}

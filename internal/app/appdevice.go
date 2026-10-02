@@ -681,22 +681,43 @@ func (d *appDevice) SetChannel(idx byte, name string, secret [16]byte) error {
 	if int(idx) > len(rows) {
 		return appserver.ErrNotFound
 	}
+	key := channelKey(name, secret)
+	if name != "" && int(idx) < len(rows) && rows[idx].Name == name && rows[idx].PrivateKey == key {
+		// RemoteTerm loads its channel into the same slot before every post; an unchanged slot writes nothing.
+		return nil
+	}
 	if name == "" {
 		if err := d.b.DeleteChannel(d.ctx(), rows[idx].ID); err != nil {
 			return appserver.ErrNotFound
 		}
-		return nil
+	} else {
+		in := api.ChannelInput{CompanionID: d.id(), Name: name, PrivateKey: &key}
+		if int(idx) < len(rows) {
+			in.ID = rows[idx].ID
+		}
+		if _, err := d.b.SaveChannel(d.ctx(), in); err != nil {
+			d.log.Info("an app's channel change was refused", "error", err)
+			return appserver.ErrIllegalArg
+		}
 	}
-	key := channelKey(name, secret)
-	in := api.ChannelInput{CompanionID: d.id(), Name: name, PrivateKey: &key}
-	if int(idx) < len(rows) {
-		in.ID = rows[idx].ID
-	}
-	if _, err := d.b.SaveChannel(d.ctx(), in); err != nil {
-		d.log.Info("an app's channel change was refused", "error", err)
-		return appserver.ErrIllegalArg
+	// The reload the save starts applies the change too, but later: an app sends on the slot straight after OK.
+	if err := d.c.SetChannels(d.channelList()); err != nil {
+		d.log.Warn("applying an app's channel change to the running companion", "error", err)
 	}
 	return nil
+}
+
+// channelList is the companion's stored channels in slot order, as config carries them.
+func (d *appDevice) channelList() config.ChannelList {
+	rows, err := d.b.db.Channels.ListByCompanion(d.ctx(), d.id())
+	if err != nil {
+		return nil
+	}
+	list := make(config.ChannelList, len(rows))
+	for i, r := range rows {
+		list[i] = config.ChannelRef{Name: r.Name, PrivateKey: r.PrivateKey}
+	}
+	return list
 }
 
 // channelKey stores no key for a channel whose name derives it, as the Channels page does, and the hex key otherwise.
