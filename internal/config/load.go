@@ -242,26 +242,12 @@ func (c *Config) Validate() error {
 			if r.DefaultRegion == WildcardRegion {
 				return fmt.Errorf(`repeater %q: defaultRegion cannot be "*"`, r.Name)
 			}
-			found := false
-			for _, rg := range r.Regions {
-				if rg.Name == r.DefaultRegion {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if _, found := FindRegion(r.Regions, r.DefaultRegion); !found {
 				return fmt.Errorf("repeater %q: defaultRegion %q is not a configured region", r.Name, r.DefaultRegion)
 			}
 		}
 		if r.HomeRegion != "" {
-			found := false
-			for _, rg := range r.Regions {
-				if rg.Name == r.HomeRegion {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if _, found := FindRegion(r.Regions, r.HomeRegion); !found {
 				return fmt.Errorf("repeater %q: homeRegion %q is not a configured region", r.Name, r.HomeRegion)
 			}
 		}

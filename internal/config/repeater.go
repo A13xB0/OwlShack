@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
 )
@@ -58,6 +59,21 @@ type RepeaterRegion struct {
 
 // WildcardRegion ("*") is the unscoped flood scope, modelled as an editable Regions entry; its absence means unscoped flood is not relayed.
 const WildcardRegion = "*"
+
+// SameRegion reports whether two names are one region, as RegionMap::findByName matches them: exactly, ignoring a leading "#".
+func SameRegion(a, b string) bool {
+	return strings.TrimPrefix(a, "#") == strings.TrimPrefix(b, "#")
+}
+
+// FindRegion returns the configured name of the region name refers to, matched as SameRegion does.
+func FindRegion(regions []RepeaterRegion, name string) (string, bool) {
+	for _, rg := range regions {
+		if SameRegion(rg.Name, name) {
+			return rg.Name, true
+		}
+	}
+	return "", false
+}
 
 // validateRegionName mirrors the firmware's RegionMap::is_name_char / MAX_REGION_NAME; the wildcard "*" is exempt.
 func validateRegionName(name string) error {
