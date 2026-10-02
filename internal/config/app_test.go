@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestValidate_AppPorts(t *testing.T) {
 	t.Parallel()
@@ -24,6 +27,36 @@ func TestValidate_AppPorts(t *testing.T) {
 		cfg := Config{ListenAddr: &web, Companions: []CompanionConfig{{Name: "a", App: tt.a}, {Name: "b", App: tt.b}}}
 		if err := cfg.Validate(); (err == nil) != tt.ok {
 			t.Errorf("%s: Validate() = %v, want ok=%v", tt.name, err, tt.ok)
+		}
+	}
+}
+
+// An app-driven companion's channels are its radio's slots, so an import keeps them as listed; others still join Public.
+func TestImport_AppCompanionKeepsItsChannelSlots(t *testing.T) {
+	t.Parallel()
+	cfg, err := UnmarshalConfigYaml([]byte(`
+companions:
+  - name: bot
+    channels: ["#traffic"]
+    app: {port: 5052}
+  - name: plain
+    channels: ["#traffic"]
+  - name: fresh
+    app: {port: 5053}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(c CompanionConfig) []string {
+		var out []string
+		for _, ch := range *c.Channels {
+			out = append(out, ch.Name)
+		}
+		return out
+	}
+	for i, want := range [][]string{{"#traffic"}, {"Public", "#traffic"}, {"Public"}} {
+		if got := names(cfg.Companions[i]); !slices.Equal(got, want) {
+			t.Errorf("%s: channels %v, want %v", cfg.Companions[i].Name, got, want)
 		}
 	}
 }
