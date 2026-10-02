@@ -214,8 +214,13 @@ func ensureTriggerChannels(comp *CompanionConfig) {
 	}
 }
 
-// ensurePublicChannel guarantees a companion is a member of the public channel.
+// ensurePublicChannel guarantees a companion is a member of the public channel. A companion that
+// takes app connections and lists its channels keeps exactly that list: those are its radio's slots,
+// which an app addresses by position and may have given to another channel, as on firmware.
 func ensurePublicChannel(comp *CompanionConfig) {
+	if comp.App != nil && comp.Channels != nil {
+		return
+	}
 	if comp.Channels == nil {
 		comp.Channels = &ChannelList{{Name: PublicChannelName}}
 		return

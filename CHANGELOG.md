@@ -3,6 +3,49 @@
 Notable changes per release. Dates are the tag date; unreleased work sits at the
 top until tagged.
 
+## Unreleased
+
+Schema `user_version` 21 to 24: adds each companion's flood scope, its companion app connection
+and the preferences an app sets, when each contact last changed, the last advert heard from
+each peer, and who the MQTT feed is published as.
+
+### Added
+
+- **The MQTT feed can be published as the repeater.** Set Publish as to Repeater on the MQTT
+  page (`mqtt.identity: repeater`) and the feed reports and signs its tokens with the repeater's
+  name and key, as a firmware repeater running meshcoretomqtt does, rather than the node
+  companion's. A site moving from a firmware or openHop repeater keeps its observer on the maps,
+  with its history, and brokers that registered the repeater's key keep accepting it. The default
+  is unchanged.
+
+- **Companion apps can drive a companion.** Give a companion an app port and the MeshCore app,
+  RemoteTerm, MeshMonitor and meshcore-cli connect to it over TCP as they do to a WiFi companion
+  radio: contacts, channels, DMs and channel posts, repeater and room logins, status, telemetry,
+  traces, signing. Messages that arrive while no app is connected wait for it. An app stays
+  connected while OwlShack reloads, and the Companions page shows which app is on each port.
+  Frequency and power are shared with every node here, so an app that sets them is told yes and
+  nothing changes. The protocol has no password: anyone who can reach the port can send as the
+  companion.
+
+- **A flood scope for each companion.** Set a region such as `sco` on the companion's settings and
+  everything it floods goes out scoped to it: channel messages, DMs and bot replies, ACKs, path
+  returns, replies to requests, adverts, and logins and requests to repeaters. Repeaters that
+  keep a region closed to unscoped traffic now relay what the companion sends, as they do for a
+  phone companion with a default scope set. Direct sends are never scoped, and a companion with no
+  scope floods unscoped as before.
+
+### Fixed
+
+- **A region named without a `#` now relays the same traffic firmware repeaters do.** A region
+  such as `sco` is the `#sco` hashtag region, as on firmware, so the repeater re-floods packets
+  that firmware nodes scope to it and scopes its own adverts so they relay. Before, `sco` and `#sco`
+  were two different regions and only `#sco` matched what other nodes sent. Regions already
+  written with a `#` are unchanged.
+- **`sco` and `#sco` are the same region wherever you type them.** The default and home region,
+  the CLI's `region` commands and the Repeater page all find the region whichever way it is
+  written, adding `#sco` beside `sco` changes the existing region instead of adding a second, and
+  removing it by either name clears a default that pointed at it.
+
 ## v1.5.0 - 2026-10-01
 
 Baseline `v1.4.2`. Sensors on the Pi, sent over the mesh; bytes per hop and one Path window for

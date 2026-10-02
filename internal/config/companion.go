@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/hex"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 )
 
@@ -23,6 +25,9 @@ type CompanionConfig struct {
 	Longitude      *float64 `json:"longitude" yaml:"longitude" toml:"longitude"`
 	AdvertInterval *int     `json:"advertInterval,omitempty" yaml:"advertInterval,omitempty" toml:"advertInterval,omitempty"` // nil == default, 0 == off
 
+	// FloodScope is the region this companion's floods go out in, as a firmware companion's default scope; "" floods unscoped.
+	FloodScope string `json:"floodScope,omitempty" yaml:"floodScope,omitempty" toml:"floodScope,omitempty"`
+
 	// Overrides Config.PathHashSize for this companion (bytes); nil == inherit, resolved at startup.
 	PathHashSize *int `json:"pathHashSize,omitempty" yaml:"pathHashSize,omitempty" toml:"pathHashSize,omitempty"`
 
@@ -40,6 +45,9 @@ type CompanionConfig struct {
 	TelemetryBase        *string `json:"telemetryBase,omitempty" yaml:"telemetryBase,omitempty" toml:"telemetryBase,omitempty"`
 	TelemetryLocation    *string `json:"telemetryLocation,omitempty" yaml:"telemetryLocation,omitempty" toml:"telemetryLocation,omitempty"`
 	TelemetryEnvironment *string `json:"telemetryEnvironment,omitempty" yaml:"telemetryEnvironment,omitempty" toml:"telemetryEnvironment,omitempty"`
+
+	// App is the TCP port MeshCore companion apps drive this companion on; nil takes no app connections.
+	App *AppConnection `json:"app,omitempty" yaml:"app,omitempty" toml:"app,omitempty"`
 
 	// Deprecated: mqtt lives at the top level of Config; legacy blocks here are hoisted by ApplyDefaults.
 	Mqtt *MqttConfig `json:"mqtt,omitempty" yaml:"mqtt,omitempty" toml:"mqtt,omitempty"`
@@ -121,4 +129,22 @@ func validateDMAllowKey(k string) error {
 		return fmt.Errorf("pubkey %q must be hex: %w", k, err)
 	}
 	return nil
+}
+
+// AppConnection is where MeshCore companion apps reach a companion, as they reach a WiFi companion radio.
+type AppConnection struct {
+	Port int `json:"port" yaml:"port" toml:"port"`
+	// Bind is the address to listen on; "" listens on every address.
+	Bind string `json:"bind,omitempty" yaml:"bind,omitempty" toml:"bind,omitempty"`
+	// AllowKeyExport lets an app read the companion's private key, which the firmware allows only when built to.
+	AllowKeyExport bool `json:"allowKeyExport,omitempty" yaml:"allowKeyExport,omitempty" toml:"allowKeyExport,omitempty"`
+}
+
+func (a AppConnection) Addr() string {
+	return net.JoinHostPort(a.Bind, strconv.Itoa(a.Port))
+}
+
+// overlaps reports whether two listeners would claim the same port: one on every address clashes with any on that port.
+func addrsOverlap(bindA string, portA int, bindB string, portB int) bool {
+	return portA == portB && (bindA == "" || bindB == "" || bindA == bindB)
 }

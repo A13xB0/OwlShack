@@ -119,7 +119,15 @@ func (b *backend) SaveMqtt(ctx context.Context, in api.MqttInput) error {
 		Email:           in.Email,
 	}
 	return b.configMutate(ctx,
-		func(rows *configRows) { rows.mqtt = &row },
+		func(rows *configRows) {
+			// Left out, the identity is kept, so a client that predates it cannot reset it.
+			if in.Identity != nil {
+				row.Identity = mqttIdentity(*in.Identity)
+			} else if rows.mqtt != nil {
+				row.Identity = rows.mqtt.Identity
+			}
+			rows.mqtt = &row
+		},
 		func(st *store.Store) error { return st.Mqtt.Set(ctx, &row) },
 	)
 }
@@ -200,6 +208,9 @@ func (b *backend) SaveCompanion(ctx context.Context, in api.CompanionInput) (int
 				DMPolicy:     in.DMPolicy, DMAllow: in.DMAllow,
 			}
 			row.PrivateKey = key
+			if in.FloodScope != nil {
+				row.FloodScope = *in.FloodScope
+			}
 			// Telemetry modes have their own endpoint, so an edit from any other form must carry them through.
 			for _, c := range rows.companions {
 				if c.ID != in.ID || in.ID == 0 {
@@ -209,6 +220,9 @@ func (b *backend) SaveCompanion(ctx context.Context, in api.CompanionInput) (int
 					row.PrivateKey = c.PrivateKey
 				}
 				row.TelemBase, row.TelemLoc, row.TelemEnv = c.TelemBase, c.TelemLoc, c.TelemEnv
+				if in.FloodScope == nil {
+					row.FloodScope = c.FloodScope
+				}
 			}
 			row.PubKey, _ = config.PubKeyHexFromSeed(row.PrivateKey)
 
@@ -240,6 +254,34 @@ func (b *backend) SaveCompanion(ctx context.Context, in api.CompanionInput) (int
 }
 
 // SetCompanionTelemetry is its own endpoint, or every other companion form would have to carry the modes.
+// SetCompanionApp sets where companion apps reach a companion; a port of 0 closes it.
+func (b *backend) SetCompanionApp(ctx context.Context, id int64, in api.CompanionAppInput) error {
+	found := false
+	err := b.configMutate(ctx,
+		func(rows *configRows) {
+			for _, c := range rows.companions {
+				found = found || c.ID == id
+			}
+			for i := range rows.apps {
+				if rows.apps[i].CompanionID == id {
+					rows.apps[i].Port, rows.apps[i].Bind, rows.apps[i].AllowKeyExport = in.Port, in.Bind, in.AllowKeyExport
+					return
+				}
+			}
+			a := store.DefaultCompanionApp(id)
+			a.Port, a.Bind, a.AllowKeyExport = in.Port, in.Bind, in.AllowKeyExport
+			rows.apps = append(rows.apps, a)
+		},
+		func(st *store.Store) error {
+			if !found {
+				return fmt.Errorf("no companion with id %d", id)
+			}
+			return st.CompanionApps.SetConnection(ctx, id, in.Port, in.Bind, in.AllowKeyExport)
+		},
+	)
+	return err
+}
+
 func (b *backend) SetCompanionTelemetry(ctx context.Context, id int64, in api.CompanionTelemetryInput) error {
 	modes := []string{in.Base, in.Location, in.Environment}
 	for _, m := range modes {
@@ -480,7 +522,7 @@ func (b *backend) UpdateRepeaterAdmin(ctx context.Context, in api.RepeaterAdminI
 func (b *backend) AddRepeaterRegion(ctx context.Context, in api.RepeaterRegionInput) error {
 	return b.mutateRepeater(ctx, func(r *store.Repeater) {
 		for i := range r.Regions {
-			if r.Regions[i].Name == in.Name {
+			if config.SameRegion(r.Regions[i].Name, in.Name) {
 				r.Regions[i].DenyFlood = in.DenyFlood
 				return
 			}
@@ -493,7 +535,7 @@ func (b *backend) AddRepeaterRegion(ctx context.Context, in api.RepeaterRegionIn
 func (b *backend) SetRepeaterRegionFlood(ctx context.Context, name string, denyFlood bool) error {
 	return b.mutateRepeater(ctx, func(r *store.Repeater) {
 		for i := range r.Regions {
-			if r.Regions[i].Name == name {
+			if config.SameRegion(r.Regions[i].Name, name) {
 				r.Regions[i].DenyFlood = denyFlood
 			}
 		}
@@ -503,20 +545,33 @@ func (b *backend) SetRepeaterRegionFlood(ctx context.Context, name string, denyF
 // RemoveRepeaterRegion: removing "*" stops relaying unscoped flood (see regionsFromConfig).
 func (b *backend) RemoveRepeaterRegion(ctx context.Context, name string) error {
 	return b.mutateRepeater(ctx, func(r *store.Repeater) {
-		r.Regions = slices.DeleteFunc(r.Regions, func(rg store.RepeaterRegion) bool { return rg.Name == name })
-		if r.DefaultRegion == name {
+		r.Regions = slices.DeleteFunc(r.Regions, func(rg store.RepeaterRegion) bool { return config.SameRegion(rg.Name, name) })
+		if r.DefaultRegion != "" && config.SameRegion(r.DefaultRegion, name) {
 			r.DefaultRegion = ""
 		}
-		if r.HomeRegion == name {
+		if r.HomeRegion != "" && config.SameRegion(r.HomeRegion, name) {
 			r.HomeRegion = ""
 		}
 	})
 }
 
 func (b *backend) DeleteRepeater(ctx context.Context) error {
+	// The feed outlives the repeater it was published as, as it outlives a deleted node companion.
+	var mqtt *store.MqttSettings
 	return b.configMutate(ctx,
-		func(rows *configRows) { rows.repeater = nil },
+		func(rows *configRows) {
+			rows.repeater = nil
+			if rows.mqtt != nil && rows.mqtt.Identity == config.MqttIdentityRepeater {
+				rows.mqtt.Identity = ""
+				mqtt = rows.mqtt
+			}
+		},
 		func(st *store.Store) error {
+			if mqtt != nil {
+				if err := st.Mqtt.Set(ctx, mqtt); err != nil {
+					return err
+				}
+			}
 			if err := st.RepeaterACL.Clear(ctx); err != nil { // drop admin-over-mesh clients
 				return err
 			}

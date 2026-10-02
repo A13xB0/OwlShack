@@ -81,6 +81,9 @@ type Companion struct {
 	// MQTT: outbound only
 	obs *mqtt.Observer
 
+	// appSink is the companion app connection listening to this companion, if any.
+	appSink atomic.Pointer[appSinkHolder]
+
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	// runCtx is kept so ReloadTriggers can start new triggers without a full restart.
@@ -103,6 +106,9 @@ func NewCompanion(cfg config.CompanionConfig, mux *node.RadioMux, st *store.Stor
 	}, nodeOpts...)
 	// Out-paths learned via path-returns only; appended last to set on the final table.
 	opts = append(opts, node.WithLearnedPathsOnly())
+	if cfg.FloodScope != "" {
+		opts = append(opts, node.WithFloodScope(config.ScopeRegion(cfg.FloodScope)))
+	}
 
 	// Identities are pinned in the config; EnsureCompanionKeys fills empty ones before it is persisted.
 	id, err := identityFromHexSeed(cfg.PrivateKey)
@@ -147,7 +153,14 @@ func NewCompanion(cfg config.CompanionConfig, mux *node.RadioMux, st *store.Stor
 	if companion.cfg.Mqtt != nil {
 		mqttCfg := *companion.cfg.Mqtt
 
-		obs, err := mqtt.NewObserver(mqttCfg, name, mux, companion.node.Identity(), stats, parseErrors)
+		originName, originID := name, companion.node.Identity()
+		if o := mqttCfg.Origin; o != nil {
+			originName = o.Name
+			if originID, err = config.LocalIdentityFromHex(o.PrivateKey); err != nil {
+				return nil, fmt.Errorf("mqtt identity: %w", err)
+			}
+		}
+		obs, err := mqtt.NewObserver(mqttCfg, originName, mux, originID, stats, parseErrors)
 		if err != nil {
 			return nil, fmt.Errorf("creating mqtt observer: %w", err)
 		}

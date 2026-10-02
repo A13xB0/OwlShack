@@ -59,6 +59,27 @@ func (r *PeerRepo) Upsert(ctx context.Context, p *Peer) error {
 	return nil
 }
 
+// SetAdvert keeps a peer's last verified advert payload, which a companion app exports or shares as its card.
+func (r *PeerRepo) SetAdvert(ctx context.Context, pubkey, payload []byte) error {
+	if _, err := r.db.ExecContext(ctx, `UPDATE discovered_peers SET advert_payload = ? WHERE pubkey = ?`, payload, pubkey); err != nil {
+		return fmt.Errorf("storing peer advert: %w", err)
+	}
+	return nil
+}
+
+// Advert is the peer's last advert payload, nil when none has been kept.
+func (r *PeerRepo) Advert(ctx context.Context, pubkey []byte) ([]byte, error) {
+	var payload []byte
+	err := r.db.QueryRowContext(ctx, `SELECT advert_payload FROM discovered_peers WHERE pubkey = ?`, pubkey).Scan(&payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading peer advert: %w", err)
+	}
+	return payload, nil
+}
+
 func (r *PeerRepo) List(ctx context.Context) ([]Peer, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT pubkey, name, type, lat, lon, feat1, feat2, out_path, out_path_hash_size, last_advert_ts, last_seen, snr, rssi

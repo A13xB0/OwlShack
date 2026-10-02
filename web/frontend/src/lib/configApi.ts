@@ -77,9 +77,13 @@ export function defaultBoard(boards: SpiBoard[]): SpiBoard | undefined {
   return boards.find((b) => b.verified === "hardware") ?? boards[0];
 }
 
+// Who the MQTT feed is published as: the node companion, or the repeater.
+export type MqttIdentity = "companion" | "repeater";
+
 export interface MqttSettings {
   enabled: boolean | null;
   nodeCompanionId: number | null;
+  identity: MqttIdentity;
   iataCode: string | null;
   statusInterval: number | null;
   owner: string | null;
@@ -116,8 +120,10 @@ export interface ConfigCompanion {
   longitude: number | null;
   advertInterval: number | null;
   pathHashSize: number | null; // null = inherit the global default
+  floodScope: string; // "" = unscoped
   dmPolicy: string; // contacts | allowlist | anyone
   dmAllow: string[] | null;
+  app: CompanionApp | null; // null = takes no companion app connections
   // Who may read each class of telemetry: deny | selected | contacts.
   telemetryBase: TelemetryMode;
   telemetryLocation: TelemetryMode;
@@ -268,6 +274,7 @@ export interface SettingsInput {
 export interface MqttInput {
   enabled?: boolean | null;
   nodeCompanionId?: number | null;
+  identity?: MqttIdentity;
   iataCode?: string | null;
   statusInterval?: number | null;
   owner?: string | null;
@@ -294,6 +301,23 @@ export interface BrokerInput {
   audience: string;
 }
 
+// Where MeshCore companion apps reach a companion, as they reach a WiFi companion radio; port 0 closes it.
+export interface CompanionApp {
+  port: number;
+  bind: string; // "" = every address
+  allowKeyExport: boolean;
+}
+
+export interface AppPortStatus {
+  companionId: number;
+  addr: string;
+  error?: string; // why the port could not open
+  client?: string; // the connected app's address
+  appName?: string;
+  since?: string;
+  replaced: number; // connections a newer one took over
+}
+
 export interface CompanionInput {
   name: string;
   privateKey?: string; // omit = keep (update) / generate (create)
@@ -301,6 +325,7 @@ export interface CompanionInput {
   longitude?: number | null;
   advertInterval?: number | null;
   pathHashSize?: number | null; // null = inherit the global default
+  floodScope?: string; // omit = keep (update) / unscoped (create); "" = unscoped
   dmPolicy?: string;
   dmAllow?: string[] | null;
 }
@@ -468,6 +493,8 @@ export const configApi = {
   // Its own endpoint: sending these with the rest of a companion would let any other form reset them.
   setCompanionTelemetry: (id: number, input: CompanionTelemetryInput) =>
     request(`/api/config/companions/${id}/telemetry`, "PUT", input),
+  setCompanionApp: (id: number, input: CompanionApp) =>
+    request(`/api/config/companions/${id}/app`, "PUT", input),
 
   createChannel: (companionId: number, input: ChannelInput) =>
     requestId(`/api/config/companions/${companionId}/channels`, "POST", input),

@@ -48,7 +48,7 @@ func (c *Companion) SendAdvert(flood bool) error {
 
 func (c *Companion) sendAdvert(flood bool) error {
 	return advert.SendSelf(c.node, c.log, "CHAT", c.cfg.Name,
-		c.cfg.Latitude, c.cfg.Longitude, flood, int(c.pathHashSize()), nil) // companions don't scope their floods
+		c.cfg.Latitude, c.cfg.Longitude, flood, int(c.pathHashSize()), c.node.FloodScope())
 }
 
 // pathHashSize is the per-hop path hash width in bytes; startup resolves the global default into the block, so nil only happens in tests.

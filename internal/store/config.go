@@ -91,10 +91,12 @@ func (r *SettingsRepo) Set(ctx context.Context, s *Settings) error {
 type MqttSettings struct {
 	Enabled         *bool
 	NodeCompanionID *int64
-	IataCode        *string
-	StatusInterval  *int
-	Owner           *string
-	Email           *string
+	// Identity is "companion" or "repeater"; empty reads as companion.
+	Identity       string
+	IataCode       *string
+	StatusInterval *int
+	Owner          *string
+	Email          *string
 }
 
 type MqttRepo struct{ db *sql.DB }
@@ -102,9 +104,9 @@ type MqttRepo struct{ db *sql.DB }
 func (r *MqttRepo) Get(ctx context.Context) (*MqttSettings, error) {
 	var m MqttSettings
 	err := r.db.QueryRowContext(ctx, `
-		SELECT enabled, node_companion_id, iata_code, status_interval, owner, email
+		SELECT enabled, node_companion_id, identity, iata_code, status_interval, owner, email
 		FROM mqtt_settings WHERE id = 1`).Scan(
-		&m.Enabled, &m.NodeCompanionID, &m.IataCode, &m.StatusInterval, &m.Owner, &m.Email,
+		&m.Enabled, &m.NodeCompanionID, &m.Identity, &m.IataCode, &m.StatusInterval, &m.Owner, &m.Email,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("getting mqtt settings: %w", err)
@@ -115,16 +117,24 @@ func (r *MqttRepo) Get(ctx context.Context) (*MqttSettings, error) {
 func (r *MqttRepo) Set(ctx context.Context, m *MqttSettings) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO mqtt_settings
-			(id, enabled, node_companion_id, iata_code, status_interval, owner, email)
-		VALUES (1, ?, ?, ?, ?, ?, ?)
+			(id, enabled, node_companion_id, identity, iata_code, status_interval, owner, email)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			enabled=excluded.enabled, node_companion_id=excluded.node_companion_id,
+			enabled=excluded.enabled, node_companion_id=excluded.node_companion_id, identity=excluded.identity,
 			iata_code=excluded.iata_code, status_interval=excluded.status_interval,
 			owner=excluded.owner, email=excluded.email`,
-		m.Enabled, m.NodeCompanionID, m.IataCode, m.StatusInterval, m.Owner, m.Email,
+		m.Enabled, m.NodeCompanionID, identityOr(m.Identity), m.IataCode, m.StatusInterval, m.Owner, m.Email,
 	)
 	if err != nil {
 		return fmt.Errorf("setting mqtt settings: %w", err)
 	}
 	return nil
+}
+
+// identityOr stores an unset MQTT identity as the column's default.
+func identityOr(identity string) string {
+	if identity == "" {
+		return "companion"
+	}
+	return identity
 }

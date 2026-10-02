@@ -214,3 +214,22 @@ func TestBytesPerHop_ANonContactGetsTheCompanionsOwn(t *testing.T) {
 		t.Errorf("a refused save still changed the live route to %x", p.OutPath)
 	}
 }
+
+// A request with no route floods in the companion's scope, as the firmware's sendRequest and sendLogin do; a routed one goes direct.
+func TestRoutedPacket_FloodsInTheNodesScope(t *testing.T) {
+	rm, _, pubkey := routeTestClient(t)
+	sco := meshcore.NewRegionFromKey("sco", meshcore.NewRegionFromHashtag("sco").Key)
+	rm.node.SetFloodScope(sco)
+	key := pubkeyArray(pubkey)
+
+	pkt, _, _ := rm.routedPacket(rm.node.Peers().Lookup(key), meshcore.PayloadTypeAnonReq, []byte{1, 2, 3, 4})
+	if pkt.RouteType() != meshcore.RouteTypeTransportFlood || !sco.MatchesPacket(pkt) {
+		t.Errorf("no route: route type %d code %04x, want a flood scoped to sco", pkt.RouteType(), pkt.TransportCode1)
+	}
+
+	rm.node.Peers().SetOutPath(key, []byte{0x7a, 0x7b}, 2)
+	pkt, _, _ = rm.routedPacket(rm.node.Peers().Lookup(key), meshcore.PayloadTypeReq, []byte{1, 2, 3, 4})
+	if pkt.RouteType() != meshcore.RouteTypeDirect {
+		t.Errorf("with a route: route type %d, want direct", pkt.RouteType())
+	}
+}

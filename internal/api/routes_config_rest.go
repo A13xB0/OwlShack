@@ -36,6 +36,7 @@ type settingsDTO struct {
 type mqttDTO struct {
 	Enabled         *bool   `json:"enabled"`
 	NodeCompanionID *int64  `json:"nodeCompanionId"`
+	Identity        string  `json:"identity"`
 	IataCode        *string `json:"iataCode"`
 	StatusInterval  *int    `json:"statusInterval"`
 	Owner           *string `json:"owner"`
@@ -72,12 +73,15 @@ type companionDTO struct {
 	Longitude      *float64 `json:"longitude"`
 	AdvertInterval *int     `json:"advertInterval"`
 	PathHashSize   *int     `json:"pathHashSize"`
+	FloodScope     string   `json:"floodScope"`
 	DMPolicy       string   `json:"dmPolicy"`
 	DMAllow        []string `json:"dmAllow"`
 	// Telemetry* is who may read each class: "deny", "selected" or "contacts".
 	TelemetryBase        string `json:"telemetryBase"`
 	TelemetryLocation    string `json:"telemetryLocation"`
 	TelemetryEnvironment string `json:"telemetryEnvironment"`
+	// App is where companion apps reach this companion; nil takes none.
+	App *CompanionAppInput `json:"app"`
 }
 
 type channelDTO struct {
@@ -121,8 +125,8 @@ func companionToDTO(c store.Companion) companionDTO {
 	return companionDTO{
 		ID: c.ID, Name: c.Name, PubKey: c.PubKey, PrivateKeySet: c.PrivateKey != "",
 		Latitude: c.Latitude, Longitude: c.Longitude, AdvertInterval: c.AdvertInterval,
-		PathHashSize: c.PathHashSize,
-		DMPolicy:     c.DMPolicy, DMAllow: c.DMAllow,
+		PathHashSize: c.PathHashSize, FloodScope: c.FloodScope,
+		DMPolicy: c.DMPolicy, DMAllow: c.DMAllow,
 		TelemetryBase: c.TelemBase, TelemetryLocation: c.TelemLoc, TelemetryEnvironment: c.TelemEnv,
 	}
 }
@@ -174,7 +178,7 @@ func (s *Server) handleGetMqtt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, mqttDTO{
-		Enabled: m.Enabled, NodeCompanionID: m.NodeCompanionID, IataCode: m.IataCode,
+		Enabled: m.Enabled, NodeCompanionID: m.NodeCompanionID, Identity: identityOr(m.Identity), IataCode: m.IataCode,
 		StatusInterval: m.StatusInterval, Owner: m.Owner, Email: m.Email,
 	})
 }
@@ -194,7 +198,54 @@ func (s *Server) handleGetCompanions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to read companions")
 		return
 	}
-	writeJSON(w, http.StatusOK, mapSlice(companions, companionToDTO))
+	apps, err := s.store.CompanionApps.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read companion apps")
+		return
+	}
+	dtos := mapSlice(companions, companionToDTO)
+	for i := range dtos {
+		for _, a := range apps {
+			if a.CompanionID == dtos[i].ID && a.Port > 0 {
+				dtos[i].App = &CompanionAppInput{Port: a.Port, Bind: a.Bind, AllowKeyExport: a.AllowKeyExport}
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, dtos)
+}
+
+func (s *Server) handleSetCompanionApp(w http.ResponseWriter, r *http.Request) {
+	b, ok := s.configBackend(w)
+	if !ok {
+		return
+	}
+	id, ok := pathID(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var in CompanionAppInput
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := b.SetCompanionApp(r.Context(), id, in); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleAppServerStatus(w http.ResponseWriter, r *http.Request) {
+	b, ok := s.configBackend(w)
+	if !ok {
+		return
+	}
+	st := b.AppServerStatus()
+	if st == nil {
+		st = []AppPortStatus{}
+	}
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleGetCompanionChannels(w http.ResponseWriter, r *http.Request) {
@@ -594,4 +645,12 @@ func (s *Server) handleRadioReset(w http.ResponseWriter, r *http.Request) {
 	}
 	b.ResetModem()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// identityOr reports an unset MQTT identity as the default it means.
+func identityOr(identity string) string {
+	if identity == "" {
+		return "companion"
+	}
+	return identity
 }

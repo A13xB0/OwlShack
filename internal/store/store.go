@@ -33,6 +33,7 @@ type Store struct {
 	Mqtt           *MqttRepo
 	Brokers        *BrokerRepo
 	Companions     *CompanionRepo
+	CompanionApps  *CompanionAppRepo
 	Channels       *ChannelRepo
 	Triggers       *TriggerRepo
 	SignalTests    *SignalTestRepo
@@ -72,6 +73,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		db:             db,
 		path:           path,
 		Peers:          &PeerRepo{db: db},
+		CompanionApps:  &CompanionAppRepo{db: db},
 		Contacts:       &ContactRepo{db: db},
 		Packets:        &PacketRepo{db: db, maxRows: DefaultMaxPackets},
 		Messages:       &MessageRepo{db: db, maxRows: DefaultMaxMessages},

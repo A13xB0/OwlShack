@@ -237,6 +237,19 @@ radio/connection change still restarts everything (modem reconnect);
   response to a session we opened, so it is never gated. Changing either field
   restarts the companion, since `triggersOnlyChange` only spares a trigger-only
   edit — so the RX path reads them without a lock.
+- **A companion's flood scope is `companions.flood_scope`**, a region name or
+  `""` for unscoped. `config.ScopeRegion` turns it into the region the way
+  firmware's `RegionMap::getTransportKeysFor` does (a bare `sco` is the `#sco`
+  hashtag region), and the repeater's regions go through the same function so
+  both sides agree on keys. It becomes the companion node's `WithFloodScope`,
+  so the library's own floods (group text, DMs, adverts) are scoped there.
+  Everything OwlShack builds itself goes through `meshpath.ScopeFlood` before it
+  is sent: ACKs, path returns, request replies and the repeater client's
+  requests, which mirrors the firmware sending every flood through
+  `sendFloodScoped`. A direct packet is never scoped. `"*"` and `"$"` names are
+  refused: one is no scope and the other's key cannot be derived from its
+  name. The companion edit carries the column through when `floodScope` is
+  omitted, as forms that do not show it must not clear it.
 - **MQTT is top-level, one node.** `Config.Mqtt` (`mqtt.node` selects the
   feeding companion, empty = first; `enabled` nil = on). Stored as
   `mqtt_settings.node_companion_id` (a real FK, ON DELETE SET NULL) and
@@ -246,6 +259,15 @@ radio/connection change still restarts everything (modem reconnect);
   `ApplyDefaults` on load — first one wins. At runtime `startCompanions` copies
   the block into the selected companion's config; `CompanionConfig.Mqtt` is
   otherwise deprecated.
+- **The feed can be published as the repeater.** `mqtt.identity` is
+  `companion` (stored as `mqtt_settings.identity`, the default) or `repeater`.
+  The observer still runs on the node companion's radio tap; with `repeater`,
+  `mqttFor` puts the repeater's name and key on the copied block as
+  `MqttConfig.Origin` (never read from a file: one that arrives is dropped),
+  and the observer signs tokens, fills `{pubkey}`/`{name}` and reports
+  `origin`/`origin_id` with them. Being in the block, a repeater rename or key
+  change rebuilds the observer. Validate refuses `repeater` with no repeater,
+  and deleting the repeater resets the identity to `companion`.
 - **Broker topics are templates.** `broker.packetTopic` / `broker.statusTopic`
   take placeholders `{iata} {pubkey} {name}` (meshcoretomqtt's `{IATA}` /
   `{PUBLIC_KEY}` uppercase forms also resolve); empty = the old hardcoded

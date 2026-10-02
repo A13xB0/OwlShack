@@ -20,6 +20,23 @@ func floodPathLength(pathHashSize int) byte {
 
 // SendSelf transmits a self-advert: flood is mesh-wide, otherwise zero-hop to direct neighbours only; scope wraps a flood in a transport region.
 func SendSelf(n *node.Node, log *slog.Logger, advType, name string, lat, lon *float64, flood bool, pathHashSize int, scope *meshcore.Region) error {
+	pkt, err := BuildSelf(n.Identity(), advType, name, lat, lon, flood, pathHashSize, scope)
+	if err != nil {
+		return err
+	}
+	mode := "flood"
+	if !flood {
+		mode = "zero-hop"
+	} else if scope != nil {
+		mode += " scoped"
+	}
+	log.Info("sending self-advert", "mode", mode)
+
+	return n.SendPacket(pkt)
+}
+
+// BuildSelf is the self-advert SendSelf sends, signed now; a companion app also exports it as this node's card.
+func BuildSelf(id meshcore.LocalIdentity, advType, name string, lat, lon *float64, flood bool, pathHashSize int, scope *meshcore.Region) (*meshcore.Packet, error) {
 	appData := meshcore.AdvertAppData{Type: advType, Name: name}
 	if lat != nil && lon != nil && (*lat != 0 || *lon != 0) {
 		appData.Lat = int32(math.Round(*lat * 1_000_000.0))
@@ -27,20 +44,20 @@ func SendSelf(n *node.Node, log *slog.Logger, advType, name string, lat, lon *fl
 	}
 	rawAppData, err := appData.ToBytes()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	adv := meshcore.Advert{
-		PublicKey:  n.Identity().Identity,
+		PublicKey:  id.Identity,
 		Timestamp:  uint32(time.Now().Unix()),
 		RawAppData: rawAppData,
 	}
 	// SignWith, not Sign(PrivateKey()): an imported expanded-key identity has no usable seed.
-	adv.SignWith(n.Identity())
+	adv.SignWith(id)
 
 	payload, err := adv.ToBytes()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// The firmware reads a direct packet with path_len==0 as zero-hop: accepted by neighbours, never relayed.
@@ -60,14 +77,5 @@ func SendSelf(n *node.Node, log *slog.Logger, advType, name string, lat, lon *fl
 		pkt.Header = meshcore.MakeHeader(meshcore.RouteTypeTransportFlood, meshcore.PayloadTypeAdvert, 0)
 		pkt.TransportCode1 = scope.CalcTransportCode(pkt)
 	}
-
-	mode := "flood"
-	if !flood {
-		mode = "zero-hop"
-	} else if scope != nil {
-		mode += " scoped"
-	}
-	log.Info("sending self-advert", "mode", mode)
-
-	return n.SendPacket(pkt)
+	return pkt, nil
 }

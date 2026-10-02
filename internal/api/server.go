@@ -148,6 +148,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/config/companions", s.handleSaveCompanion)
 	s.mux.HandleFunc("PUT /api/config/companions/{id}", s.handleSaveCompanion)
 	s.mux.HandleFunc("PUT /api/config/companions/{id}/telemetry", s.handleSetCompanionTelemetry)
+	s.mux.HandleFunc("PUT /api/config/companions/{id}/app", s.handleSetCompanionApp)
+	s.mux.HandleFunc("GET /api/appserver/status", s.handleAppServerStatus)
 	s.mux.HandleFunc("DELETE /api/config/companions/{id}", s.handleDeleteCompanion)
 	s.mux.HandleFunc("POST /api/config/companions/{id}/channels", s.handleCreateChannel)
 	s.mux.HandleFunc("PUT /api/config/channels/{id}", s.handleSaveChannel)

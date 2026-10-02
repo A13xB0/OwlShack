@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/meshcore-go/OwlShack/internal/api"
+	"github.com/meshcore-go/OwlShack/internal/appserver"
 	"github.com/meshcore-go/OwlShack/internal/config"
 	"github.com/meshcore-go/OwlShack/internal/discover"
 	"github.com/meshcore-go/OwlShack/internal/echo"
@@ -167,6 +168,10 @@ func Run(ctx context.Context, importPath string, verbosity int) error {
 	// Long-lived across reloads: reaches the current companions through compReg, re-pointed on each reload.
 	compReg := newCompanionRegistry()
 
+	// Also long-lived: an app keeps its connection while the companions under it restart.
+	apps := appserver.New(slog.Default())
+	defer apps.Close()
+
 	mon := monitor.New(db, srv.Hub(), newMergedLister(newContactLister(compReg, db), newLinkLister(compReg, db)), slog.Default())
 	mon.RegisterCollector("repeater", newRepeaterCollector(compReg, db, slog.Default()))
 	mon.RegisterCollector("companion", newCompanionCollector(compReg, slog.Default()))
@@ -232,11 +237,13 @@ func Run(ctx context.Context, importPath string, verbosity int) error {
 	// installBackend hands the server a backend over whatever radio generation is running now.
 	installBackend := func() {
 		liveRadio.Store(ms)
-		srv.SetBackend(&backend{
+		b := &backend{
 			companions: companions, repeater: rep, db: db, stats: statsOf(ms), mux: mux,
 			reload: reload, resetModem: resetModem, discover: disc, sensors: sensorHub, telemetry: telemetry,
-			feedPreview: feedPreview,
-		})
+			feedPreview: feedPreview, apps: apps,
+		}
+		srv.SetBackend(b)
+		applyApps(apps, b, cfg)
 	}
 
 	// stopRadio tears the stack down and leaves the vars nil, which is the state startRadio recovers from.
@@ -508,7 +515,7 @@ func effectiveCompanionConfigs(cfg *config.Config) []config.CompanionConfig {
 	copy(blocks, cfg.Companions)
 	for i := range blocks {
 		if blocks[i].Name == mqttNode && mqttNode != "" {
-			blocks[i].Mqtt = cfg.Mqtt
+			blocks[i].Mqtt = mqttFor(cfg)
 		}
 		if blocks[i].PathHashSize == nil {
 			blocks[i].PathHashSize = &pathHash
@@ -517,8 +524,26 @@ func effectiveCompanionConfigs(cfg *config.Config) []config.CompanionConfig {
 	return blocks
 }
 
+// mqttFor is the mqtt block the node companion runs: the top-level one, with the repeater's name and key as its origin when the feed is published as the repeater.
+func mqttFor(cfg *config.Config) *config.MqttConfig {
+	m := *cfg.Mqtt
+	// Origin is only ever derived here; one that arrived in an imported file is not trusted.
+	m.Origin = nil
+	if m.AsRepeater() {
+		if cfg.Repeater == nil {
+			// Validate refuses this, so only a hand-edited database gets here; publish as the companion rather than not at all.
+			slog.Warn("mqtt identity is repeater but no repeater is configured; publishing as the companion")
+		} else {
+			m.Origin = &config.MqttOrigin{Name: cfg.Repeater.Name, PrivateKey: cfg.Repeater.PrivateKey}
+		}
+	}
+	return &m
+}
+
 // blocksEqual compares blocks as JSON; a marshal error reports "not equal", erring towards a restart.
+// blocksEqual ignores the app connection: the app server re-points it at the running companion without a restart.
 func blocksEqual(a, b config.CompanionConfig) bool {
+	a.App, b.App = nil, nil
 	aj, err1 := json.Marshal(a)
 	bj, err2 := json.Marshal(b)
 	return err1 == nil && err2 == nil && bytes.Equal(aj, bj)
