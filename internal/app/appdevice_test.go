@@ -283,6 +283,19 @@ func TestAppDevice_ChannelsAndRename(t *testing.T) {
 	if err := r.cli.SetChannel(r.ctx(t), 7, "#far", test.PSK); err == nil {
 		t.Error("a channel past the next free slot was accepted")
 	}
+	// An unused slot reads blank and clears without complaint, as on firmware; past the last slot is not found.
+	if ch, err := r.cli.GetChannel(r.ctx(t), 5); err != nil || ch.Name != "" || ch.Secret != ([16]byte{}) {
+		t.Errorf("unused slot 5 = %+v, %v; want a blank channel", ch, err)
+	}
+	if err := r.cli.SetChannel(r.ctx(t), 5, "", [16]byte{}); err != nil {
+		t.Errorf("clearing unused slot 5: %v", err)
+	}
+	if _, err := r.cli.GetChannel(r.ctx(t), appMaxChannels); err == nil {
+		t.Error("a slot past MAX_GROUP_CHANNELS was answered")
+	}
+	if chans, _ := r.st.Channels.ListByCompanion(t.Context(), r.comp.ID()); len(chans) != 2 {
+		t.Errorf("after the unused-slot calls there are %d channels, want 2", len(chans))
+	}
 
 	if err := r.cli.SetAdvertName(r.ctx(t), "home 2"); err != nil {
 		t.Fatal(err)
