@@ -9,6 +9,9 @@ import (
 	meshcore "github.com/meshcore-go/meshcore-go"
 	"github.com/meshcore-go/meshcore-go/node"
 
+	"github.com/meshcore-go/OwlShack/internal/config"
+	"github.com/meshcore-go/OwlShack/internal/node/advert"
+	"github.com/meshcore-go/OwlShack/internal/sensor"
 	"github.com/meshcore-go/OwlShack/internal/store"
 )
 
@@ -167,4 +170,26 @@ func (c *Companion) recordAppSend(channel string, hash byte, text string) {
 			})
 		}
 	})
+}
+
+// Config is the companion's configuration as it was started.
+func (c *Companion) Config() config.CompanionConfig { return c.cfg }
+
+// PathHashSize is the bytes per hop this companion floods at.
+func (c *Companion) PathHashSize() uint8 { return c.pathHashSize() }
+
+// SelfAdvertPacket is this companion's advert as it would flood now, which an app exports as its card.
+func (c *Companion) SelfAdvertPacket() (*meshcore.Packet, error) {
+	return advert.BuildSelf(c.node.Identity(), "CHAT", c.cfg.Name, c.cfg.Latitude, c.cfg.Longitude, true, int(c.pathHashSize()), nil)
+}
+
+// SelfTelemetry is every reading this companion would share, as the firmware answers an app's own telemetry request.
+func (c *Companion) SelfTelemetry() []byte {
+	var entries []sensor.ChannelEntry
+	var statuses []sensor.Status
+	if hook := c.telemetryHook(); hook != nil {
+		entries, statuses = hook()
+	}
+	body, _ := sensor.BuildReply(sensor.PermBase|sensor.PermLocation|sensor.PermEnvironment, c.selfReadings(), entries, statuses, meshcore.MaxPacketPayload-16)
+	return body
 }

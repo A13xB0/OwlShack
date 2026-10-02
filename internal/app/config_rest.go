@@ -246,6 +246,34 @@ func (b *backend) SaveCompanion(ctx context.Context, in api.CompanionInput) (int
 }
 
 // SetCompanionTelemetry is its own endpoint, or every other companion form would have to carry the modes.
+// SetCompanionApp sets where companion apps reach a companion; a port of 0 closes it.
+func (b *backend) SetCompanionApp(ctx context.Context, id int64, in api.CompanionAppInput) error {
+	found := false
+	err := b.configMutate(ctx,
+		func(rows *configRows) {
+			for _, c := range rows.companions {
+				found = found || c.ID == id
+			}
+			for i := range rows.apps {
+				if rows.apps[i].CompanionID == id {
+					rows.apps[i].Port, rows.apps[i].Bind, rows.apps[i].AllowKeyExport = in.Port, in.Bind, in.AllowKeyExport
+					return
+				}
+			}
+			a := store.DefaultCompanionApp(id)
+			a.Port, a.Bind, a.AllowKeyExport = in.Port, in.Bind, in.AllowKeyExport
+			rows.apps = append(rows.apps, a)
+		},
+		func(st *store.Store) error {
+			if !found {
+				return fmt.Errorf("no companion with id %d", id)
+			}
+			return st.CompanionApps.SetConnection(ctx, id, in.Port, in.Bind, in.AllowKeyExport)
+		},
+	)
+	return err
+}
+
 func (b *backend) SetCompanionTelemetry(ctx context.Context, id int64, in api.CompanionTelemetryInput) error {
 	modes := []string{in.Base, in.Location, in.Environment}
 	for _, m := range modes {

@@ -96,6 +96,10 @@ type Backend interface {
 	SaveBroker(ctx context.Context, in BrokerInput) (int64, error)
 	DeleteBroker(ctx context.Context, id int64) error
 	SaveCompanion(ctx context.Context, in CompanionInput) (int64, error)
+	// SetCompanionApp sets where companion apps reach a companion.
+	SetCompanionApp(ctx context.Context, id int64, in CompanionAppInput) error
+	// AppServerStatus reports each companion app port.
+	AppServerStatus() []AppPortStatus
 	// SetCompanionTelemetry sets who may read each class of a companion's telemetry.
 	SetCompanionTelemetry(ctx context.Context, id int64, in CompanionTelemetryInput) error
 	DeleteCompanion(ctx context.Context, id int64) error
@@ -565,6 +569,24 @@ type CompanionInput struct {
 	AdvertInterval *int     `json:"advertInterval"`
 	PathHashSize   *int     `json:"pathHashSize"`
 	FloodScope     *string  `json:"floodScope"` // nil = keep (update) / unscoped (create)
+}
+
+// CompanionAppInput is where companion apps reach a companion; Port 0 closes it.
+type CompanionAppInput struct {
+	Port           int    `json:"port"`
+	Bind           string `json:"bind"`
+	AllowKeyExport bool   `json:"allowKeyExport"`
+}
+
+// AppPortStatus is one companion's app port: listening or why not, and the app on it.
+type AppPortStatus struct {
+	CompanionID int64  `json:"companionId"`
+	Addr        string `json:"addr"`
+	Error       string `json:"error,omitempty"`
+	Client      string `json:"client,omitempty"`
+	AppName     string `json:"appName,omitempty"`
+	Since       string `json:"since,omitempty"`
+	Replaced    int    `json:"replaced"`
 }
 
 // CompanionTelemetryInput is who may read each class: "deny", "selected" or "contacts".

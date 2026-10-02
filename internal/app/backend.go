@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/meshcore-go/OwlShack/internal/api"
+	"github.com/meshcore-go/OwlShack/internal/appserver"
 	"github.com/meshcore-go/OwlShack/internal/config"
 	"github.com/meshcore-go/OwlShack/internal/discover"
 	"github.com/meshcore-go/OwlShack/internal/modem"
@@ -41,6 +42,8 @@ type backend struct {
 	telemetry *telemetryPublisher
 	// feedPreview keeps what a bot Test fetched across radio generations, so a reconnect mid-edit does not refetch.
 	feedPreview *trigger.FeedPreview
+	// apps serves companion apps; it outlives every generation, so an app stays connected through a reload.
+	apps *appserver.Server
 }
 
 func (b *backend) find(name string) (*companion.Companion, bool) {

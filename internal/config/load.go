@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	meshcore "github.com/meshcore-go/meshcore-go"
@@ -219,6 +221,10 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if err := validateAppPorts(c); err != nil {
+		return err
+	}
+
 	// The repeater's name shares the companion namespace, and it can't reuse a companion's private key.
 	if r := c.Repeater; r != nil {
 		if r.Name == "" {
@@ -371,4 +377,36 @@ func derefUint8(p *uint8) uint8 {
 		return 0
 	}
 	return *p
+}
+
+// validateAppPorts refuses an app port that is out of range, binds an address that is not an IP, or would collide with the web UI or another companion.
+func validateAppPorts(c *Config) error {
+	webBind, webPort := "", -1
+	if c.ListenAddr != nil {
+		if h, p, err := net.SplitHostPort(*c.ListenAddr); err == nil {
+			webBind = h
+			webPort, _ = strconv.Atoi(p)
+		}
+	}
+	for i, comp := range c.Companions {
+		a := comp.App
+		if a == nil {
+			continue
+		}
+		if a.Port < 1 || a.Port > 65535 {
+			return fmt.Errorf("companion %q: app port must be 1-65535", comp.Name)
+		}
+		if a.Bind != "" && net.ParseIP(a.Bind) == nil {
+			return fmt.Errorf("companion %q: app bind %q is not an IP address", comp.Name, a.Bind)
+		}
+		if addrsOverlap(a.Bind, a.Port, webBind, webPort) {
+			return fmt.Errorf("companion %q: app port %d is the web UI's", comp.Name, a.Port)
+		}
+		for _, other := range c.Companions[:i] {
+			if other.App != nil && addrsOverlap(a.Bind, a.Port, other.App.Bind, other.App.Port) {
+				return fmt.Errorf("companions %q and %q both take app port %d", other.Name, comp.Name, a.Port)
+			}
+		}
+	}
+	return nil
 }
