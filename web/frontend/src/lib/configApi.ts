@@ -77,9 +77,13 @@ export function defaultBoard(boards: SpiBoard[]): SpiBoard | undefined {
   return boards.find((b) => b.verified === "hardware") ?? boards[0];
 }
 
+// Who the MQTT feed is published as: the node companion, or the repeater.
+export type MqttIdentity = "companion" | "repeater";
+
 export interface MqttSettings {
   enabled: boolean | null;
   nodeCompanionId: number | null;
+  identity: MqttIdentity;
   iataCode: string | null;
   statusInterval: number | null;
   owner: string | null;
@@ -270,6 +274,7 @@ export interface SettingsInput {
 export interface MqttInput {
   enabled?: boolean | null;
   nodeCompanionId?: number | null;
+  identity?: MqttIdentity;
   iataCode?: string | null;
   statusInterval?: number | null;
   owner?: string | null;

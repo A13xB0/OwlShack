@@ -259,6 +259,15 @@ radio/connection change still restarts everything (modem reconnect);
   `ApplyDefaults` on load — first one wins. At runtime `startCompanions` copies
   the block into the selected companion's config; `CompanionConfig.Mqtt` is
   otherwise deprecated.
+- **The feed can be published as the repeater.** `mqtt.identity` is
+  `companion` (stored as `mqtt_settings.identity`, the default) or `repeater`.
+  The observer still runs on the node companion's radio tap; with `repeater`,
+  `mqttFor` puts the repeater's name and key on the copied block as
+  `MqttConfig.Origin` (never read from a file: one that arrives is dropped),
+  and the observer signs tokens, fills `{pubkey}`/`{name}` and reports
+  `origin`/`origin_id` with them. Being in the block, a repeater rename or key
+  change rebuilds the observer. Validate refuses `repeater` with no repeater,
+  and deleting the repeater resets the identity to `companion`.
 - **Broker topics are templates.** `broker.packetTopic` / `broker.statusTopic`
   take placeholders `{iata} {pubkey} {name}` (meshcoretomqtt's `{IATA}` /
   `{PUBLIC_KEY}` uppercase forms also resolve); empty = the old hardcoded

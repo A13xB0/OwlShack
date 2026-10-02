@@ -5,11 +5,18 @@ top until tagged.
 
 ## Unreleased
 
-Schema `user_version` 21 to 23: adds each companion's flood scope, its companion app connection
-and the preferences an app sets, when each contact last changed, and the last advert heard from
-each peer.
+Schema `user_version` 21 to 24: adds each companion's flood scope, its companion app connection
+and the preferences an app sets, when each contact last changed, the last advert heard from
+each peer, and who the MQTT feed is published as.
 
 ### Added
+
+- **The MQTT feed can be published as the repeater.** Set Publish as to Repeater on the MQTT
+  page (`mqtt.identity: repeater`) and the feed reports and signs its tokens with the repeater's
+  name and key, as a firmware repeater running meshcoretomqtt does, rather than the node
+  companion's. A site moving from a firmware or openHop repeater keeps its observer on the maps,
+  with its history, and brokers that registered the repeater's key keep accepting it. The default
+  is unchanged.
 
 - **Companion apps can drive a companion.** Give a companion an app port and the MeshCore app,
   RemoteTerm, MeshMonitor and meshcore-cli connect to it over TCP as they do to a WiFi companion

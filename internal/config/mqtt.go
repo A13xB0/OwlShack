@@ -8,15 +8,43 @@ import (
 )
 
 type MqttConfig struct {
-	// Node names the companion whose identity feeds the observer; empty = the first companion.
-	Node    *string `json:"node,omitempty" yaml:"node,omitempty" toml:"node,omitempty"`
-	Enabled *bool   `json:"enabled,omitempty" yaml:"enabled,omitempty" toml:"enabled,omitempty"` // nil = enabled
+	// Node names the companion that runs the observer; empty = the first companion.
+	Node *string `json:"node,omitempty" yaml:"node,omitempty" toml:"node,omitempty"`
+	// Identity is who the feed is published as: the node companion (the default) or the repeater,
+	// which is how a firmware repeater running meshcoretomqtt reports and keeps an existing observer's history.
+	Identity string `json:"identity,omitempty" yaml:"identity,omitempty" toml:"identity,omitempty"`
+	Enabled  *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty" toml:"enabled,omitempty"` // nil = enabled
 
 	IataCode       *string        `json:"iataCode" yaml:"iataCode" toml:"iataCode"`
 	StatusInterval *int           `json:"statusInterval" yaml:"statusInterval" toml:"statusInterval"`
 	Owner          *string        `json:"owner" yaml:"owner" toml:"owner"`
 	Email          *string        `json:"email" yaml:"email" toml:"email"`
 	Brokers        []BrokerConfig `json:"brokers" yaml:"brokers" toml:"broker"`
+
+	// Origin is set on the copy handed to the node companion when Identity is repeater; JSON-tagged
+	// so a repeater rename or key change rebuilds the observer.
+	Origin *MqttOrigin `json:"origin,omitempty" yaml:"-" toml:"-"`
+}
+
+// MQTT identities: the node companion's, or the repeater's.
+const (
+	MqttIdentityCompanion = "companion"
+	MqttIdentityRepeater  = "repeater"
+)
+
+// MqttIdentities lists the values Identity takes; empty means companion.
+var MqttIdentities = []string{MqttIdentityCompanion, MqttIdentityRepeater}
+
+// AsRepeater reports whether the feed is published as the repeater.
+func (c *MqttConfig) AsRepeater() bool {
+	return c != nil && c.Identity == MqttIdentityRepeater
+}
+
+// MqttOrigin is the identity the observer publishes as when it is not the companion it runs on.
+// It is filled in at run time from the repeater block, never read from or written to a config file.
+type MqttOrigin struct {
+	Name       string `json:"name"`
+	PrivateKey string `json:"privateKey"`
 }
 
 func (c *MqttConfig) IsEnabled() bool {

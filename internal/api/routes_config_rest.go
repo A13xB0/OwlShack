@@ -36,6 +36,7 @@ type settingsDTO struct {
 type mqttDTO struct {
 	Enabled         *bool   `json:"enabled"`
 	NodeCompanionID *int64  `json:"nodeCompanionId"`
+	Identity        string  `json:"identity"`
 	IataCode        *string `json:"iataCode"`
 	StatusInterval  *int    `json:"statusInterval"`
 	Owner           *string `json:"owner"`
@@ -177,7 +178,7 @@ func (s *Server) handleGetMqtt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, mqttDTO{
-		Enabled: m.Enabled, NodeCompanionID: m.NodeCompanionID, IataCode: m.IataCode,
+		Enabled: m.Enabled, NodeCompanionID: m.NodeCompanionID, Identity: identityOr(m.Identity), IataCode: m.IataCode,
 		StatusInterval: m.StatusInterval, Owner: m.Owner, Email: m.Email,
 	})
 }
@@ -644,4 +645,12 @@ func (s *Server) handleRadioReset(w http.ResponseWriter, r *http.Request) {
 	}
 	b.ResetModem()
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// identityOr reports an unset MQTT identity as the default it means.
+func identityOr(identity string) string {
+	if identity == "" {
+		return "companion"
+	}
+	return identity
 }
