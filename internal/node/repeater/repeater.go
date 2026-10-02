@@ -288,13 +288,17 @@ func (r *Repeater) Stop() error {
 // regionsFromConfig derives each named scope's key as RegionMap::getTransportKeysFor does: a bare name is the "#name" hashtag region; "*" is never a named region.
 func regionsFromConfig(cfg []config.RepeaterRegion) (named []*meshcore.Region, wildcardFlags uint8) {
 	wildcardFlags = meshcore.RegionDenyFlood // no "*" entry ⇒ don't relay unscoped flood
-	for _, rg := range cfg {
+	for i, rg := range cfg {
 		if rg.Name == config.WildcardRegion {
 			if rg.DenyFlood {
 				wildcardFlags = meshcore.RegionDenyFlood
 			} else {
 				wildcardFlags = 0
 			}
+			continue
+		}
+		// "sco" and "#sco" are one region with one key; the first entry stands, as putRegion would have reused it.
+		if _, dup := config.FindRegion(cfg[:i], rg.Name); dup {
 			continue
 		}
 		reg := meshcore.NewRegionFromKey(rg.Name, meshcore.NewRegionFromHashtag(rg.Name).Key)

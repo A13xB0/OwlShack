@@ -480,7 +480,7 @@ func (b *backend) UpdateRepeaterAdmin(ctx context.Context, in api.RepeaterAdminI
 func (b *backend) AddRepeaterRegion(ctx context.Context, in api.RepeaterRegionInput) error {
 	return b.mutateRepeater(ctx, func(r *store.Repeater) {
 		for i := range r.Regions {
-			if r.Regions[i].Name == in.Name {
+			if config.SameRegion(r.Regions[i].Name, in.Name) {
 				r.Regions[i].DenyFlood = in.DenyFlood
 				return
 			}
@@ -493,7 +493,7 @@ func (b *backend) AddRepeaterRegion(ctx context.Context, in api.RepeaterRegionIn
 func (b *backend) SetRepeaterRegionFlood(ctx context.Context, name string, denyFlood bool) error {
 	return b.mutateRepeater(ctx, func(r *store.Repeater) {
 		for i := range r.Regions {
-			if r.Regions[i].Name == name {
+			if config.SameRegion(r.Regions[i].Name, name) {
 				r.Regions[i].DenyFlood = denyFlood
 			}
 		}
@@ -503,11 +503,11 @@ func (b *backend) SetRepeaterRegionFlood(ctx context.Context, name string, denyF
 // RemoveRepeaterRegion: removing "*" stops relaying unscoped flood (see regionsFromConfig).
 func (b *backend) RemoveRepeaterRegion(ctx context.Context, name string) error {
 	return b.mutateRepeater(ctx, func(r *store.Repeater) {
-		r.Regions = slices.DeleteFunc(r.Regions, func(rg store.RepeaterRegion) bool { return rg.Name == name })
-		if r.DefaultRegion == name {
+		r.Regions = slices.DeleteFunc(r.Regions, func(rg store.RepeaterRegion) bool { return config.SameRegion(rg.Name, name) })
+		if r.DefaultRegion != "" && config.SameRegion(r.DefaultRegion, name) {
 			r.DefaultRegion = ""
 		}
-		if r.HomeRegion == name {
+		if r.HomeRegion != "" && config.SameRegion(r.HomeRegion, name) {
 			r.HomeRegion = ""
 		}
 	})

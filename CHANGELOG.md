@@ -12,6 +12,10 @@ top until tagged.
   that firmware nodes scope to it and scopes its own adverts so they relay. Before, `sco` and `#sco`
   were two different regions and only `#sco` matched what other nodes sent. Regions already
   written with a `#` are unchanged.
+- **`sco` and `#sco` are the same region wherever you type them.** The default and home region,
+  the CLI's `region` commands and the Repeater page all find the region whichever way it is
+  written, adding `#sco` beside `sco` changes the existing region instead of adding a second, and
+  removing it by either name clears a default that pointed at it.
 
 ## v1.5.0 - 2026-10-01
 
