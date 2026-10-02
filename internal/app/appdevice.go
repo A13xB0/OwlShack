@@ -658,7 +658,9 @@ func (d *appDevice) AdvertPath(key [32]byte) (companion.AdvertPathResponse, bool
 func (d *appDevice) Channel(idx byte) (companion.ChannelInfoResponse, bool) {
 	ch := d.c.Node().Channel(int(idx))
 	if ch == nil {
-		return companion.ChannelInfoResponse{}, false
+		// Firmware answers every slot below MAX_GROUP_CHANNELS, an unused one with no name and a
+		// zero key; apps read them all and skip the blank ones.
+		return companion.ChannelInfoResponse{ChannelIdx: idx}, int(idx) < appMaxChannels
 	}
 	return companion.ChannelInfoResponse{ChannelIdx: idx, Name: ch.Name, Secret: ch.PSK}, true
 }
@@ -669,7 +671,14 @@ func (d *appDevice) SetChannel(idx byte, name string, secret [16]byte) error {
 	if err != nil {
 		return appserver.ErrFileIO
 	}
-	if int(idx) > len(rows) || (int(idx) == len(rows) && name == "") {
+	if int(idx) >= appMaxChannels {
+		return appserver.ErrNotFound
+	}
+	if name == "" && int(idx) >= len(rows) {
+		// Clearing a slot that holds nothing succeeds, as on firmware: RemoteTerm clears every slot it reads.
+		return nil
+	}
+	if int(idx) > len(rows) {
 		return appserver.ErrNotFound
 	}
 	if name == "" {
